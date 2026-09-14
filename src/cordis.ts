@@ -1,9 +1,10 @@
-/** Cordis 入口：注册 `usageStats` 服务（Typert Gateway 只读 Remote：overview / drillSessions / sessionUsage）。
+/** Cordis 入口：注册 `usageStats` 服务（Typert Gateway 只读 Remote：overview 单方法）。
+ *  会话级视图宿主自带（底部计数条 + 会话统计对话框），本包只做全局汇总——不预留下钻接口。
  *
  * 设计约束（勿改成 import 官方包）：
  * - 本包运行在宿主 node 进程里，但被 pnpm 链接在文件目录下，若 import
  *   `@deepseek-ai/dsh-typert-protocol` / `@deepseek-ai/cordis` 会解析出与宿主不同的第二副本，
- *   Service 原型链与 instanceof 判定跨副本失效（与 plugin-iteration / plugin-auto-cut 同规则：零依赖）。
+ *   Service 原型链与 instanceof 判定跨副本失效（零依赖铁律）。
  * - 因此这里按协议文档的形态手工落两件套：
  *   ① 实例字段 `typertRemote = { service, serviceKey, namespace }`（gateway validateBinding 读它）；
  *   ② 原型字符串键 `"@deepseek-ai/dsh-typert-protocol/remote-methods"`（remoteMethods() 跨副本可读，
@@ -15,17 +16,9 @@
  *   实测（dsh-api-gateway methodParameterNames + Node type-strip 行为）：`: unknown` 这类简单类型注解
  *   strip 后替换为空白、解析时按 trim 保留标识符，可安全携带（tsc strict 需要）；默认值/解构/rest 禁止。
  */
-import {
-  buildDrill,
-  buildOverview,
-  buildSessionUsage,
-  normalizeDrill,
-  normalizeRange,
-  normalizeSessionId,
-  scanFolds,
-  type FileCacheEntry,
-} from "./aggregate.ts";
+import { buildOverview, normalizeRange, scanFolds } from "./aggregate.ts";
 import { sessionsRoot } from "./scanner.ts";
+import { FoldStore } from "./store.ts";
 import { assertPricesShape, USAGE_STATS_SETTINGS_NS, UsageStatsSettingsSchema } from "./settings.ts";
 import type { Prices } from "./pricing.ts";
 
@@ -33,7 +26,7 @@ export type CordisConfig = {
   /** 会话根目录覆盖（默认 $DSH_HOME/sessions 或 ~/.dsh/sessions）。 */
   sessionsHome?: string;
   /** 价目表部署 base：键 "provider/model" 或 "model"，值 {input,output,cacheRead,cacheWrite}，元/百万 token。
-   *  settings provider 在场时作为 base 层，GUI「设置→插件」用户层覆盖其上。 */
+   *  settings provider 在场时作为 base 层，GUI「设置」用户层覆盖其上。 */
   prices?: Prices;
 };
 
@@ -42,8 +35,9 @@ const REMOTE_METHODS_KEY = "@deepseek-ai/dsh-typert-protocol/remote-methods";
 class UsageStatsService {
   ctx: any;
   config: CordisConfig;
-  cache: Map<string, FileCacheEntry> = new Map();
   typertRemote: { service: UsageStatsService; serviceKey: string; namespace: string };
+  /** 增量扫描存量（懒初始化：sessions 根要到首次查询才确定）。 */
+  private store: FoldStore | null = null;
   /** 生效价目来源：默认 patch config；settings 注册后被替换为 scope.get()（含用户层）。 */
   priceSource: () => { prices?: Prices } = () => ({ prices: this.config.prices || {} });
 
@@ -63,25 +57,12 @@ class UsageStatsService {
     }
   }
 
-  /** 汇总视图：`{ from?, to? }`（YYYY-MM-DD，本地时区），缺省全部时间。 */
+  /** 全局汇总视图：`{ from?, to?, model?, provider? }`（日期 YYYY-MM-DD 本地时区），缺省全部。 */
   async overview(filter: unknown) {
     const root = sessionsRoot(this.config.sessionsHome);
-    const { folds } = await scanFolds(root, this.cache);
+    if (!this.store) this.store = new FoldStore(root);
+    const { folds } = await scanFolds(root, this.store);
     return buildOverview(folds, normalizeRange(filter), this.effectivePrices());
-  }
-
-  /** 会话级下钻：`{ from?, to?, model?, limit?, offset? }`，按最近活跃排序。 */
-  async drillSessions(query: unknown) {
-    const root = sessionsRoot(this.config.sessionsHome);
-    const { folds } = await scanFolds(root, this.cache);
-    return buildDrill(folds, normalizeDrill(query), this.effectivePrices());
-  }
-
-  /** 当前会话用量：`{ sessionId }`；未采到该会话返回 null（客户端显示占位）。 */
-  async sessionUsage(query: unknown) {
-    const root = sessionsRoot(this.config.sessionsHome);
-    const { folds } = await scanFolds(root, this.cache);
-    return buildSessionUsage(folds, normalizeSessionId(query), this.effectivePrices());
   }
 }
 
@@ -90,11 +71,7 @@ Object.defineProperty(UsageStatsService.prototype, REMOTE_METHODS_KEY, {
   configurable: true,
   value: Object.freeze({
     version: 1,
-    methods: Object.freeze([
-      Object.freeze({ method: "overview", invocation: Object.freeze({ kind: "direct" }) }),
-      Object.freeze({ method: "drillSessions", invocation: Object.freeze({ kind: "direct" }) }),
-      Object.freeze({ method: "sessionUsage", invocation: Object.freeze({ kind: "direct" }) }),
-    ]),
+    methods: Object.freeze([Object.freeze({ method: "overview", invocation: Object.freeze({ kind: "direct" }) })]),
   }),
 });
 
@@ -104,7 +81,7 @@ export const inject: string[] = [];
 export function applyCordis(ctx: any, config?: CordisConfig) {
   const service = new UsageStatsService(ctx, config || {});
   ctx.reflect.provide("usageStats", service);
-  // 延迟注入：settings provider 在场才注册命名空间（GUI「设置→插件」可编辑价目）；
+  // 延迟注入：settings provider 在场才注册命名空间（设置页可编辑价目）；
   // 不在场则 priceSource 保持 patch config，插件照常出 token 统计（不报钱）。
   if (typeof ctx.inject === "function") {
     ctx.inject(["settings"], (settingsCtx: any) => {

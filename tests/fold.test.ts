@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { foldJsonl, localDate } from "../src/scanner.ts";
-import { buildDrill, buildOverview, buildSessionUsage, hitRate, normalizeDrill, normalizeRange } from "../src/aggregate.ts";
+import { buildOverview, hitRate, normalizeRange } from "../src/aggregate.ts";
 import { costOf, priceFor } from "../src/pricing.ts";
 
 const DAY = "2026-09-19";
@@ -75,24 +75,26 @@ test("buildOverview：无价目 → cost null；缓存字段未上报 → hitRat
   assert.equal(o.hitRate, null);
 });
 
-test("normalizeRange/normalizeDrill：非法值丢弃、倒挂交换、limit 钳制", () => {
+test("normalizeRange：非法值丢弃、倒挂交换、model/provider 只收非空字符串", () => {
   assert.deepEqual(normalizeRange({ from: "2026-09-01", to: "bad" }), { from: "2026-09-01" });
   assert.deepEqual(normalizeRange({ from: "2026-09-10", to: "2026-09-01" }), { from: "2026-09-01", to: "2026-09-10" });
-  const q = normalizeDrill({ limit: 9999, offset: -3, model: "a/b" });
-  assert.equal(q.limit, 200);
-  assert.equal(q.offset, 0);
-  assert.equal(q.model, "a/b");
+  assert.deepEqual(normalizeRange({ model: "a/b", provider: " ", n: 3 }), { model: "a/b" });
 });
 
-test("buildDrill：模型过滤 + 分页 + 排序", () => {
-  const d = buildDrill([FOLD_S1, FOLD_S2], normalizeDrill({ model: "buzz/qwen-x", limit: 10 }), {});
-  assert.equal(d.total, 1);
-  assert.equal(d.rows[0].sessionId, "s-1");
-  assert.equal(d.rows[0].models[0], "buzz/qwen-x");
-  assert.equal(d.rows[0].subagent, true);
-  const all = buildDrill([FOLD_S1, FOLD_S2], normalizeDrill({}), {});
-  assert.equal(all.total, 2);
-  assert.equal(all.rows[0].lastTime > all.rows[1].lastTime || all.rows[0].sessionId === "s-1", true);
+test("buildOverview：model/provider 过滤在 fact 层生效；维度过滤下 messages=null（无归属口径）", () => {
+  const full = buildOverview([FOLD_S1, FOLD_COUNTS], {}, {});
+  assert.equal(full.totals.requests, 3);
+  assert.deepEqual(full.messages, { user: 2, assistant: 5, toolCalls: 2 }, "无维度过滤时消息计数按会话求和（s-1 三条 assistant + s-9 两条）");
+  const byModel = buildOverview([FOLD_S1, FOLD_COUNTS], { model: "buzz/qwen-x" }, {});
+  assert.equal(byModel.totals.requests, 3, "全键匹配 s-1 两条 + s-9 一条");
+  assert.equal(byModel.byModel.length, 1);
+  assert.equal(byModel.messages, null, "维度过滤后消息计数无口径 → null");
+  assert.equal(byModel.sessionCount, 2);
+  const bare = buildOverview([FOLD_S1, FOLD_S2], { model: "qwen-x" }, {});
+  assert.equal(bare.totals.requests, 2, "裸 model 兜底匹配");
+  const prov = buildOverview([FOLD_S1, FOLD_S2], { provider: "unknown" }, {});
+  assert.equal(prov.totals.requests, 1, "provider 段精确匹配 s-2x");
+  assert.equal(prov.byModel[0].key, "unknown/unknown");
 });
 
 test("pricing：provider/model 精确优先，裸 model 兜底，缺价 null", () => {
@@ -104,7 +106,7 @@ test("pricing：provider/model 精确优先，裸 model 兜底，缺价 null", (
   assert.equal(hitRate({ requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, reportsCache: false }), null);
 });
 
-/* ---------------- v2：会话级计数 + buildSessionUsage ---------------- */
+/* ---------------- 会话级计数（overview.messages 数据源） ---------------- */
 
 /** 覆盖 user/message、tool/call、无 usage 的 assistant/message 三类计数行的独立 fixture。 */
 const FIXTURE_COUNTS = [
@@ -137,42 +139,4 @@ test("buildOverview：messages 三计数求和 + configuredPrices", () => {
   const empty = buildOverview([FOLD_COUNTS], { from: "2099-01-01" }, {});
   assert.deepEqual(empty.messages, { user: 0, assistant: 0, toolCalls: 0 }, "窗口外会话不贡献计数");
   assert.equal(empty.configuredPrices, 0);
-});
-
-test("buildSessionUsage：单会话聚合（meta+totals+byModel+费用）", () => {
-  const prices = { "buzz/qwen-x": { input: 2, output: 8, cacheRead: 0.4, cacheWrite: 0 } };
-  const u = buildSessionUsage([FOLD_S1, FOLD_COUNTS], "s-9", prices);
-  assert.ok(u);
-  assert.equal(u.title, "");
-  assert.equal(u.cwd, "/w/c");
-  assert.equal(u.subagent, false);
-  assert.deepEqual(u.messages, { user: 2, assistant: 2, toolCalls: 2 });
-  assert.equal(u.totals.requests, 1);
-  assert.equal(u.totals.input, 10);
-  assert.equal(u.totals.output, 2);
-  assert.equal(u.totals.cacheRead, 30);
-  assert.equal(u.hitRate, 30 / 40);
-  assert.equal(u.priced, true);
-  assert.ok(Math.abs(u.cost! - (20 + 16 + 12) / 1e6) < 1e-12);
-  assert.equal(u.byModel.length, 1);
-  assert.equal(u.byModel[0].key, "buzz/qwen-x");
-  assert.equal(u.firstTime, T + 5000);
-  assert.equal(u.lastTime, T + 5000);
-  // 另一会话互不污染
-  const u1 = buildSessionUsage([FOLD_S1, FOLD_COUNTS], "s-1", {});
-  assert.ok(u1 && u1.totals.requests === 2 && u1.sessionId === "s-1");
-  assert.equal(u1.priced, false);
-  assert.equal(u1.cost, null);
-});
-
-test("buildSessionUsage：缺会话 / 坏入参一律 null", () => {
-  assert.equal(buildSessionUsage([FOLD_COUNTS], "nope", {}), null);
-  assert.equal(buildSessionUsage([FOLD_COUNTS], "", {}), null);
-  // meta 在但无 usage 事实：返回零值视图而非 null（新会话刚创建）
-  const bare: import("../src/scanner.ts").Fold = {
-    facts: [],
-    meta: { ...FOLD_COUNTS.meta!, sessionId: "s-live" },
-  };
-  const z = buildSessionUsage([bare], "s-live", {});
-  assert.ok(z && z.totals.total === 0 && z.messages.user === 2);
 });

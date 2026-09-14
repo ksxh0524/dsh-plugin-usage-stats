@@ -1,14 +1,10 @@
-/** 聚合层：文件级增量缓存（mtime+size 键）+ 总计 / byModel / byDay / bySession 汇总。
- *  所有导出结构保持 JSON-safe，直接作为 Remote 返回值。 */
+/** 聚合层：增量扫描调度（状态经 store.ts 持久化）+ 全局总计（消息数 / 四路 token / 命中率 / byModel / byDay / 费用），
+ *  overview 支持 model/provider 过滤（fact 层先过滤再聚合，与时间过滤同构）。
+ *  所有导出结构保持 JSON-safe，直接作为 Remote 返回值。宿主自带会话统计（轮/步/tok·s/缓存），本包只做全局视角。 */
 import { stat } from "node:fs/promises";
-import { listSessionFiles, readFold, type Fold, type SessionMeta, type UsageFact } from "./scanner.ts";
+import { listSessionFiles, type Fold, type UsageFact } from "./scanner.ts";
 import { costOf, priceFor, type Prices } from "./pricing.ts";
-
-export interface FileCacheEntry {
-  mtimeMs: number;
-  size: number;
-  fold: Fold;
-}
+import { FoldStore } from "./store.ts";
 
 export interface ScanResult {
   folds: Fold[];
@@ -16,12 +12,14 @@ export interface ScanResult {
   reloaded: number;
 }
 
-/** 扫描全部会话：命中缓存（mtime+size 未变）即复用折叠结果；每文件之间让出事件循环，避免首扫长时间占用宿主。 */
-export async function scanFolds(root: string, cache: Map<string, FileCacheEntry>): Promise<ScanResult> {
+/** 扫描全部会话：未变文件复用持久行（0 解压），追加文件只解新增帧，其余整文件重解；
+ *  每文件之间让出事件循环，避免首扫长时间占用宿主。 */
+export async function scanFolds(root: string, store: FoldStore): Promise<ScanResult> {
+  await store.load();
   const files = await listSessionFiles(root);
   let reloaded = 0;
-  const alive = new Set(files);
-  for (const key of [...cache.keys()]) if (!alive.has(key)) cache.delete(key);
+  const folds: Fold[] = [];
+  const alive = new Set<string>();
   for (const file of files) {
     let s;
     try {
@@ -29,27 +27,28 @@ export async function scanFolds(root: string, cache: Map<string, FileCacheEntry>
     } catch {
       continue;
     }
-    const hit = cache.get(file);
-    if (hit && hit.mtimeMs === s.mtimeMs && hit.size === s.size) continue;
+    alive.add(file);
+    const before = store.rows.get(file);
     try {
-      cache.set(file, { mtimeMs: s.mtimeMs, size: s.size, fold: await readFold(file) });
-      reloaded++;
+      folds.push(await store.foldFor(file, { size: s.size, mtimeMs: s.mtimeMs, ino: s.ino }));
     } catch {
-      cache.set(file, { mtimeMs: s.mtimeMs, size: s.size, fold: { facts: [], meta: null } });
+      folds.push({ facts: [], meta: null });
     }
+    const after = store.rows.get(file);
+    if (after && (!before || before.size !== after.size || before.bytes !== after.bytes)) reloaded++;
     await new Promise((r) => setImmediate(r));
   }
-  const folds: Fold[] = [];
-  for (const file of files) {
-    const e = cache.get(file);
-    if (e) folds.push(e.fold);
-  }
+  await store.flush(alive);
   return { folds, files: files.length, reloaded };
 }
 
 export interface Range {
   from?: string;
   to?: string;
+  /** 精确模型匹配（"provider/model" 全键或裸 model 键，与服务端价目同规则）。 */
+  model?: string;
+  /** 服务商前缀匹配（"provider/" 之前的字段）。 */
+  provider?: string;
 }
 
 export function normalizeRange(raw: unknown): Range {
@@ -63,6 +62,8 @@ export function normalizeRange(raw: unknown): Range {
     out.from = out.to;
     out.to = t;
   }
+  if (typeof r.model === "string" && r.model.trim()) out.model = r.model.trim();
+  if (typeof r.provider === "string" && r.provider.trim()) out.provider = r.provider.trim();
   return out;
 }
 
@@ -72,14 +73,28 @@ function inRange(date: string, range: Range): boolean {
   return true;
 }
 
+/** 模型/服务商过滤在 fact 层生效（与价目同规则：全键 "prov/model" 精确，裸 model 兜底；provider 前缀精确段匹配）。 */
+function matchesDims(f: UsageFact, range: Range): boolean {
+  if (range.provider && f.provider !== range.provider) return false;
+  if (range.model && f.model !== range.model && `${f.provider}/${f.model}` !== range.model) return false;
+  return true;
+}
+
 function collectFacts(folds: Fold[], range: Range): { facts: UsageFact[]; metaById: Map<string, Fold["meta"]> } {
   const facts: UsageFact[] = [];
   const metaById = new Map<string, Fold["meta"]>();
+  const noDim = !range.model && !range.provider;
   for (const fold of folds) {
     for (const f of fold.facts) {
       if (!inRange(f.date, range)) continue;
-      facts.push(f);
-      if (fold.meta && !metaById.has(f.sessionId)) metaById.set(f.sessionId, fold.meta);
+      if (noDim) {
+        facts.push(f);
+        if (fold.meta && !metaById.has(f.sessionId)) metaById.set(f.sessionId, fold.meta);
+      } else if (matchesDims(f, range)) {
+        facts.push(f);
+        // 维度过滤后，消息计数只统计「命中维度」的会话（否则口径与过滤后 totals 不一致）。
+        if (fold.meta && !metaById.has(f.sessionId)) metaById.set(f.sessionId, null);
+      }
     }
   }
   return { facts, metaById };
@@ -140,8 +155,8 @@ export interface MessageCounts {
 
 export interface Overview {
   totals: Totals;
-  /** 会话级消息计数：窗口内有 usage 事实的会话的 meta 计数之和（按 meta 对象去重）。 */
-  messages: MessageCounts;
+  /** 会话级消息计数（无维度过滤时）：窗口内有 usage 事实的会话 meta 计数之和；按 model/provider 筛选 = null（无归属口径）。 */
+  messages: MessageCounts | null;
   hitRate: number | null;
   cost: number | null;
   priced: boolean;
@@ -195,13 +210,16 @@ export function buildOverview(folds: Fold[], range: Range, prices: Prices): Over
   const byDay = [...dayRows.values()]
     .map((d) => ({ ...d, hitRate: hitRate(d), cost: dayCosts.get(d.date) ?? null }))
     .sort((a, b) => (a.date < b.date ? -1 : 1));
-  // 会话级计数：按 meta 对象去重后累加（同文件一会话；跨窗口有事实的会话才计）。
-  const messages: MessageCounts = { user: 0, assistant: 0, toolCalls: 0 };
-  for (const meta of new Set(metaById.values())) {
-    if (!meta) continue;
-    messages.user += meta.userMessages || 0;
-    messages.assistant += meta.assistantMessages || 0;
-    messages.toolCalls += meta.toolCalls || 0;
+  // 会话级计数：仅无维度过滤时有口径（消息行不携带模型归因，按 model/provider 筛选后无法归属 → null，客户端隐藏该行）。
+  let messages: MessageCounts | null = null;
+  if (!range.model && !range.provider) {
+    messages = { user: 0, assistant: 0, toolCalls: 0 };
+    for (const meta of new Set(metaById.values())) {
+      if (!meta) continue;
+      messages.user += meta.userMessages || 0;
+      messages.assistant += meta.assistantMessages || 0;
+      messages.toolCalls += meta.toolCalls || 0;
+    }
   }
   return {
     totals,
@@ -215,168 +233,5 @@ export function buildOverview(folds: Fold[], range: Range, prices: Prices): Over
     sessionCount: metaById.size || new Set(facts.map((f) => f.sessionId)).size,
     scannedFiles: folds.length,
     generatedAt: Date.now(),
-  };
-}
-
-export interface SessionRow extends Totals {
-  sessionId: string;
-  title: string;
-  cwd: string;
-  subagent: boolean;
-  userMessages: number;
-  assistantMessages: number;
-  toolCalls: number;
-  models: string[];
-  hitRate: number | null;
-  cost: number | null;
-  firstTime: number;
-  lastTime: number;
-}
-
-export interface DrillResult {
-  rows: SessionRow[];
-  total: number;
-}
-
-export interface DrillQuery extends Range {
-  /** 模型键 "provider/model"，缺省不限。 */
-  model?: string;
-  limit: number;
-  offset: number;
-}
-
-export function normalizeDrill(raw: unknown): DrillQuery {
-  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const q: DrillQuery = { ...normalizeRange(raw), limit: 20, offset: 0 };
-  if (typeof r.model === "string" && r.model) q.model = r.model;
-  const lim = Number(r.limit);
-  if (Number.isFinite(lim) && lim > 0) q.limit = Math.min(Math.floor(lim), 200);
-  const off = Number(r.offset);
-  if (Number.isFinite(off) && off >= 0) q.offset = Math.floor(off);
-  return q;
-}
-
-export function buildDrill(folds: Fold[], q: DrillQuery, prices: Prices): DrillResult {
-  const rows = new Map<string, SessionRow>();
-  const costById = new Map<string, number>();
-  for (const fold of folds) {
-    for (const f of fold.facts) {
-      if (!inRange(f.date, q)) continue;
-      if (q.model && `${f.provider}/${f.model}` !== q.model) continue;
-      let row = rows.get(f.sessionId);
-      if (!row) {
-        const sameMeta = fold.meta && fold.meta.sessionId === f.sessionId ? fold.meta : null;
-        row = {
-          ...emptyTotals(),
-          sessionId: f.sessionId,
-          title: fold.meta?.title || "",
-          cwd: fold.meta?.cwd || "",
-          subagent: !!fold.meta?.subagent,
-          userMessages: sameMeta?.userMessages || 0,
-          assistantMessages: sameMeta?.assistantMessages || 0,
-          toolCalls: sameMeta?.toolCalls || 0,
-          models: [],
-          hitRate: null,
-          cost: null,
-          firstTime: f.time,
-          lastTime: f.time,
-        };
-        rows.set(f.sessionId, row);
-        costById.set(f.sessionId, 0);
-      }
-      const key = `${f.provider}/${f.model}`;
-      if (!row.models.includes(key)) row.models.push(key);
-      add(row, f);
-      if (f.time < row.firstTime) row.firstTime = f.time;
-      if (f.time > row.lastTime) row.lastTime = f.time;
-      const c = costOf({ input: f.input, output: f.output, cacheRead: f.cacheRead, cacheWrite: f.cacheWrite }, priceFor(prices, f.provider, f.model));
-      if (c !== null) costById.set(f.sessionId, (costById.get(f.sessionId) || 0) + c);
-    }
-  }
-  const all = [...rows.values()].map((r) => ({ ...r, hitRate: hitRate(r), cost: costById.get(r.sessionId) ?? null })).sort((a, b) => b.lastTime - a.lastTime);
-  return { rows: all.slice(q.offset, q.offset + q.limit), total: all.length };
-}
-
-/* ---------------- v2：当前会话用量（面板数据源） ---------------- */
-
-export interface SessionUsage {
-  sessionId: string;
-  cwd: string;
-  title: string;
-  subagent: boolean;
-  createdAt: number;
-  delegationDepth: number;
-  messages: MessageCounts;
-  /** 四路 token + requests（重试折叠后口径，与 overview 一致）。 */
-  totals: Totals;
-  hitRate: number | null;
-  cost: number | null;
-  priced: boolean;
-  byModel: ModelRow[];
-  firstTime: number;
-  lastTime: number;
-}
-
-/** `sessionUsage(query)` 入参归一：只认字符串 sessionId，其余一律空串（聚合层回 null）。 */
-export function normalizeSessionId(raw: unknown): string {
-  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  return typeof r.sessionId === "string" ? r.sessionId : "";
-}
-
-/** 单会话聚合：meta 字段 + 全部 usage 事实（不筛日期）；会话未被扫到返回 null。 */
-export function buildSessionUsage(folds: Fold[], sessionId: string, prices: Prices): SessionUsage | null {
-  if (!sessionId) return null;
-  let meta: SessionMeta | null = null;
-  const totals = emptyTotals();
-  const modelRows = new Map<string, ModelRow>();
-  let costSum = 0;
-  let anyPrice = false;
-  let firstTime = 0;
-  let lastTime = 0;
-  let found = false;
-  for (const fold of folds) {
-    if (fold.meta && fold.meta.sessionId === sessionId) meta = fold.meta;
-    for (const f of fold.facts) {
-      if (f.sessionId !== sessionId) continue;
-      found = true;
-      add(totals, f);
-      const key = `${f.provider}/${f.model}`;
-      const price = priceFor(prices, f.provider, f.model);
-      if (price) anyPrice = true;
-      let m = modelRows.get(key);
-      if (!m) {
-        m = { ...emptyTotals(), provider: f.provider, model: f.model, key, hitRate: null, cost: null };
-        modelRows.set(key, m);
-      }
-      add(m, f);
-      const c = costOf({ input: f.input, output: f.output, cacheRead: f.cacheRead, cacheWrite: f.cacheWrite }, price);
-      if (c !== null) costSum += c;
-      if (!firstTime || f.time < firstTime) firstTime = f.time;
-      if (f.time > lastTime) lastTime = f.time;
-    }
-  }
-  if (!meta && !found) return null; // 文件未落盘/未扫到/坏 id：客户端显示「未采集到该会话用量」
-  const byModel = [...modelRows.values()]
-    .map((m) => ({ ...m, hitRate: hitRate(m), cost: costOf(m, priceFor(prices, m.provider, m.model)) }))
-    .sort((a, b) => b.total - a.total);
-  return {
-    sessionId,
-    cwd: meta?.cwd || "",
-    title: meta?.title || "",
-    subagent: !!meta?.subagent,
-    createdAt: meta?.createdAt || 0,
-    delegationDepth: meta?.delegationDepth || 0,
-    messages: {
-      user: meta?.userMessages || 0,
-      assistant: meta?.assistantMessages || 0,
-      toolCalls: meta?.toolCalls || 0,
-    },
-    totals,
-    hitRate: hitRate(totals),
-    cost: anyPrice ? costSum : null,
-    priced: anyPrice,
-    byModel,
-    firstTime: firstTime || meta?.createdAt || 0,
-    lastTime,
   };
 }

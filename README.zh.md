@@ -1,48 +1,52 @@
-# dsh-plugin-usage-stats（中文版）
+# dsh-plugin-usage-stats
 
-英文主文档见 [README.md](./README.md)。
+[English](./README.md)
 
-DSH Web GUI 用量统计插件（v2）：**右侧栏「用量」tab = 当前会话**视图（消息数、四路 token、命中率、按模型、费用）；**「设置 → 插件 → 插件配置」卡 = 全局报表**（与会话无关，支持今天/7 天/30 天/全部/选某天筛选）。纯只读、零埋点。
+DSH（DeepSeek Harness）Web GUI 的用量统计插件（v3）：**设置里的独立「Token 用量」页**——跨全部 workspace 的全局报表（与会话无关）：日期范围选择器（默认今天；预设 今天 / 近3天 / 近7天 / 近30天 / 全部）、**按模型与服务商过滤**、KPI 网格、按模型 / 按天明细表、可选费用。严格只读，零埋点。
 
-- 数据源：`<DSH_HOME>/sessions/*/*/session.v3.jsonl.zstd`（**所有 workspace 的全局视图**，含子代理会话标记）。
-- 形态：服务端注册 `usageStats` Remote（`overview` / `drillSessions` / `sessionUsage` 三个只读方法）+ `usage-stats` settings 命名空间（价目表持久化）；浏览器半手写 `__ModuleLoader__` 工厂（`lib/client.js`，无构建链）。面板的当前会话 id 取 `sidebar.right.pane.tab` slot 的 session-scope 标准 prop（官方 sidebar-files 同款取法），切会话自动重载。
+单会话统计（轮/步、tok/s、缓存命中、逐条消息用量）**宿主聊天界面自带**——本插件刻意不重复造；v2 的右侧栏 tab 与下钻接口因此删除。
+
+- 数据源：`<DSH_HOME>/sessions/*/*/session.v3.jsonl.zstd`——**跨全部 workspace 的全局视图**，含子代理会话。
+- 增量设计：会话文件是追加式多帧 zstd。字节级精确的帧 walker（RFC 8878 帧头/块头，不碰 LZ4）让扫描器按文件持久化折叠状态，后续只解压**新完成的帧**，未变文件零解压开销。状态落 `<DSH_HOME>/cache/usage-stats.folds.json`（tmp+rename 原子写；状态损坏或缺失自动整文件重扫）。
+- 形态：服务端注册 `usageStats` Typert Remote（**单只读方法 `overview(filter)`**）与 `usage-stats` settings 命名空间（价目表持久化）；浏览器半是手写 `__ModuleLoader__` 工厂（`lib/client.js`，无构建链），自挂 remote descriptor 并注入 `settings.section` 页面。
 
 ## 安装
 
 ```sh
-dsh plugin --profile <你的profile> add dsh-plugin-usage-stats
+dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 ```
 
-装完**重启该 profile 的 host**（新挂包不在热重载范围）。刷新 Web GUI → 右侧栏 guide 页 → 「用量统计」胶囊 → 以 tab 打开。
+然后**重启该 profile 的 host**（新挂载的包不会热加载）。刷新 Web GUI → 设置 → 通用侧栏 → **Token 用量**。
 
-- **面板（当前会话）**：会话标题/短 id/cwd/子代理徽标 + 用户消息 / Agent 消息 / 工具调用 / 请求步数 + 总输入（未缓存）/ 输出 / 缓存读（含命中率）/ 缓存写 + 按模型小表 + 费用（有价目显示金额，无则「—」）+「刷新」（重扫会话文件；新会话未落盘时显示「未采集到该会话用量」）。
-- **设置卡（全局报表）**：时间筛选 chips（今天/7 天/30 天/全部）+ 单日选择（本地时区）、会话数/消息数/四路 token/命中率/费用合计 KPI、按模型表、底部价目只读摘要（编辑走 settings.yaml，见下）。界面从简，不做价目表单。
+- **日期范围**：单触发按钮（不是两个原生输入框），弹层内含预设快捷键 + 月历任意范围选择（本地时区、按天粒度）。点「全部」清空窗口。
+- **过滤**：服务商、模型两个下拉（选项池来自最近一次无过滤扫描；选中服务商后模型列表随之收窄）。维度过滤生效时消息计数 KPI 自动隐藏——消息行不携带模型归因，没有诚实的数字可显示。
+- **报表**：会话数 / 消息数（用户 / 助手 / 工具调用）/ 总 token / 未缓存输入 / 输出 / 缓存读（含命中率）/ 缓存写 / 费用合计，随后按模型、按天两张明细表，底部只读价目摘要（编辑走 settings.yaml，见下）。刻意轻量——不做价目编辑表单。
 
 ## 口径
 
-- `inputTokens` = **未缓存输入**（`total = input + output + cacheRead + cacheWrite`，已在真实数据核实）。
-- 命中率 = `cacheRead / (cacheRead + 未缓存输入)`；`cacheWrite` 单列不参与比率。
-- Provider 未上报缓存字段时命中率显示「—」（不误报 0%）。
-- 重试折叠：同一 `(session, turn, step)` scope 只保留末条 usage 样本。
-- 费用：未配置价目的模型只报 token 不报钱。
-- 消息计数（v2）：`userMessages` = `user/message` 行数，`assistantMessages` = `assistant/message` 行数（无 usage 的也计），`toolCalls` = `tool/call` 行数——逐行顺带 O(1)、不去重。全局卡的消息数为「窗口内有 usage 事实的会话」的 meta 计数之和（按 meta 对象去重），与会话数同口径。
-- `sessionUsage`：单会话聚合全部 usage 事实（不按日期筛）；会话未被扫到时返回 `null`（面板显示「未采集到该会话用量」，多为新会话尚未落盘）。
+- `inputTokens` = **未缓存输入**（`total = input + output + cacheRead + cacheWrite`，真实数据已核实）。
+- 命中率 = `cacheRead / (cacheRead + 未缓存输入)`；`cacheWrite` 单列报告、不参与比率。
+- 从不上报缓存字段的 provider，命中率显示“—”（绝不给误导性的 0%）。
+- 重试折叠：同一 `(session, turn, step)` scope 只保留末条 usage 样本——这也让增量重放天然幂等。
+- 费用：未配价的模型只报 token 不报钱。
+- 消息计数：`userMessages` 数 `user/message` 行、`assistantMessages` 数 `assistant/message` 行（含无 usage 的）、`toolCalls` 数 `tool/call` 行——逐行 O(1) 顺带计数、不去重。overview 对窗口内有 usage 事实的会话按文件去重求和；带模型/服务商过滤时返回 `null`。
+- `overview(filter)` 接受 `{ from?, to?, model?, provider? }`——日期 `YYYY-MM-DD`（本地时区，起止倒挂自动交换），`model` 与价目同规则（`"provider/model"` 全键精确优先、裸模型名兜底），`provider` 匹配服务商段。非法键直接丢弃、不做猜测。
 
 ## 价目表（元 / 百万 token）
 
-两层，宿主 settings 语义：**patch base（部署默认）→ 用户设置层覆盖，改后热生效、不重启**。
+两层，遵循宿主 settings 语义：**patch base（部署默认）→ 用户 settings 层覆盖**——热生效、免重启。
 
-1. **用户层（推荐）**：`usage-stats` 命名空间持久化在 `~/.dsh/settings.yaml`（宿主「设置」可打开该文档）：
+1. **用户层（推荐）**：`~/.dsh/settings.yaml` 里的 `usage-stats` 命名空间（宿主设置页可打开）：
 
    ```yaml
    usage-stats:
      prices:
        "opencode-go/glm-5.3-flash": { input: 2, output: 8, cacheRead: 0.2, cacheWrite: 2.5 }
-       "some-lora-model": { input: 1 } # 缺省字段自动按 0 补
+       "some-lora-model": { input: 1 } # 缺省字段按 0
    ```
 
-2. **部署 base**：profile patch 行的 `config.prices`（`dsh plugin` 挂包时的默认值）。
-   注意 patch **整体替换目标行 config**，写 patch 时所有键都要重述：
+2. **部署 base**：profile patch 行的 `config.prices`（`dsh plugin` 写入的默认值）。
+   注意：patch 行**整体替换目标行的 config**——写 patch 时所有键都要重述：
 
    ```yaml
    - id: usage-stats
@@ -51,13 +55,13 @@ dsh plugin --profile <你的profile> add dsh-plugin-usage-stats
        prices: {}
    ```
 
-键支持 `"provider/model"`（精确优先）或裸 `"model"`（兜底）。数值须 ≥ 0（schema 拒绝负数）。
+键支持 `"provider/model"`（精确优先）或裸 `"model"`（兜底）。值必须 ≥ 0（schema 拒绝负数）。
 
 ## 开发
 
-本包在宿主 profile 里以 pnpm `link:`（符号链接）挂载时，改源码后**无需重装依赖**：服务端代码改动重启 host 生效，`lib/client.js` 改动刷新页面即生效。若改用 `file:` 挂载则每次须回 profile `pnpm install` 同步拷贝。
+以 pnpm `link:`（符号链接）挂进宿主 profile 时，改源码**免重装**：服务端改动重启 host 生效，`lib/client.js` 改动刷新页面即生效。`file:` 挂载则每次须在 profile 内 `pnpm install` 重同步拷贝。
 
-依赖 `@deepseek-ai/schemastery`（settings schema）在 pnpm hoisted 布局下与宿主共用顶层拷贝，无 instanceof 风险。
+`@deepseek-ai/schemastery` 依赖（settings schema）在 pnpm hoisted 布局下与宿主共享顶层副本——无跨副本 instanceof 风险。
 
 ## 测试
 
@@ -65,12 +69,12 @@ dsh plugin --profile <你的profile> add dsh-plugin-usage-stats
 node --test tests/*.test.ts
 ```
 
-fixture 口径测试（折叠、三计数、单会话聚合、价目折算、settings 接线）+ 真实会话目录集成测试（无会话目录自动 skip）。
+fixture 口径测试（折叠、消息计数、维度过滤、价目折算、settings 接线）、用真 `zstd` CLI 产物对表的帧边界测试（无 CLI 自动 skip）、跨帧半行场景的「增量 === 全量重放」性质测试、持久化 store 重启复用测试，另有真实会话目录集成测试（无会话目录自动 skip）。
 
-## 已知边界（v0.2）
+## 已知边界（v0.3）
 
-- 会话文件为多帧 zstd 追加流：解码走 `zstd -dc` CLI（缺省回退 node:zlib 单帧解码，可能漏后帧）。
-- 文件级缓存按 `mtime+size`；同文件内只做「整文件重解」，无字节级尾部增量。
-- 面板/卡片打开时拉取 + 手动刷新（及会话切换、时间筛选变化时重载），无服务端推送。
-- 浏览器侧 `$mount` 手写 strict descriptor（结果 schema 透传），两端方法/参数名（`overview(filter)` / `drillSessions(query)` / `sessionUsage(query)`）是隐式契约，改名须同步 `lib/client.js`。
-- 设置卡只读：展示全局报表与「N 个模型已配价」摘要；价目编辑仍走 settings.yaml 文档（数据层与热生效链路已就绪，编辑表单有意不做）。
+- 增量解码依赖帧 walker 识别「完整帧」：文件尾半帧留待下次补齐；legacy/字典帧退化为整文件重扫（仍正确，只是慢）。
+- 无 `zstd` CLI 时增量按帧喂 node:zlib；再失败则整库回退全量重解（结果正确）。
+- 打开页面、手动刷新、改筛选时拉取；无服务端推送，也不自动轮询。
+- 浏览器侧 `$mount` 手写 strict descriptor（结果 schema 透传）；方法/参数名（`overview(filter)`）与 `src/cordis.ts` 是隐式两端契约，改一端必同步另一端。
+- 价目编辑仍在 settings.yaml 文档（数据层与热更新已就绪；编辑表单刻意不做）。
