@@ -1,5 +1,7 @@
 name: Publish
 # 打 tag 发 npm：git push tag v* → npm publish（需在仓库 Secrets 配置 NPM_TOKEN = npm Automation 令牌）。
+# ⚠ 首版（全新包名）npm 强制人工 web 认证（EOTP），token 发不了——须在本地手动
+#   `npm publish` 一次建包；之后本工作流负责所有后续 tag 的自动发布。
 # tag 即发布点——推 tag 前本地三道门（pnpm check / husky）已过，此处不复跑测试；
 # 只做发布前对账：tag 号必须等于 package.json 的 version，防错版本误发。
 # workflow_dispatch 供漏触发时（如 secret 晚于 tag 配置）在默认分支上手动补发。
