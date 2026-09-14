@@ -1,0 +1,9 @@
+# dsh-plugin-usage-stats layer：用量统计服务（server）+ 浏览器面板（client，dsh.client 行由同一包承载）。
+# config.prices：价目表，键 "provider/model" 或 "model"，值 {input, output, cacheRead, cacheWrite}，单位元/百万 token。
+# 未配置价目的模型只报 token 不报钱。价格由用户在 profile patch 层覆盖补充。
+- insert:
+    - id: usage-stats
+      name: dsh-plugin-usage-stats
+      config:
+        sessionsHome: ""
+        prices: {}
