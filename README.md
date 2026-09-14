@@ -43,7 +43,7 @@ node --test tests/*.test.ts
 
 Fixture metric tests (folding, retry replacement, filters, session-profile counts, store version gate), byte-accurate frame-walker tests against real `zstd` CLI output (skipped without the CLI), an incremental-equals-full-replay property test with lines deliberately split across frame boundaries, a persistent-store restart test, plus integration tests against the real session directory (auto-skipped when none exists).
 
-## Known limits (v0.3)
+## Known limits (v0.4)
 
 - Incremental decoding relies on the frame walk recognizing completed frames; a half-written tail frame is folded on the next run, and legacy/dict frames degrade to full-file rescans (still correct, just slower).
 - Without the `zstd` CLI the incremental path decodes frame-by-frame via node:zlib; if that fails too, the whole-store fallback is a correct full rescan.
