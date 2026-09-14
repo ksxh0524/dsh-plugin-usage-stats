@@ -28,6 +28,7 @@
   "files": [
     "src",
     "lib",
+    "tests",
     "cordis.patch.yml",
     "README.md"
   ],
