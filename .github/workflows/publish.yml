@@ -28,6 +28,7 @@ jobs:
             echo "tag v$TAG_VER ≠ package version $PKG_VER，拒发" >&2
             exit 1
           fi
-      - run: npm publish --provenance
+      # --ignore-scripts：无构建链包，prepare=husky 钩子与发布无关（CI 无 devDeps，跑了必炸）。
+      - run: npm publish --provenance --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
