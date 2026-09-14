@@ -16,6 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
+        env:
+          # setup-node 在此刻把 NODE_AUTH_TOKEN 写进 ~/.npmrc 的 _authToken——
+          # 挂在后续 publish step 上是无效的（npm 不读该环境变量）。
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -30,5 +34,3 @@ jobs:
           fi
       # --ignore-scripts：无构建链包，prepare=husky 钩子与发布无关（CI 无 devDeps，跑了必炸）。
       - run: npm publish --provenance --access public --ignore-scripts
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
