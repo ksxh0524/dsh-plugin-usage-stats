@@ -19,15 +19,10 @@
 import { buildOverview, normalizeRange, scanFolds } from "./aggregate.ts";
 import { sessionsRoot } from "./scanner.ts";
 import { FoldStore } from "./store.ts";
-import { assertPricesShape, USAGE_STATS_SETTINGS_NS, UsageStatsSettingsSchema } from "./settings.ts";
-import type { Prices } from "./pricing.ts";
 
 export type CordisConfig = {
   /** 会话根目录覆盖（默认 $DSH_HOME/sessions 或 ~/.dsh/sessions）。 */
   sessionsHome?: string;
-  /** 价目表部署 base：键 "provider/model" 或 "model"，值 {input,output,cacheRead,cacheWrite}，元/百万 token。
-   *  settings provider 在场时作为 base 层，GUI「设置」用户层覆盖其上。 */
-  prices?: Prices;
 };
 
 const REMOTE_METHODS_KEY = "@deepseek-ai/dsh-typert-protocol/remote-methods";
@@ -38,8 +33,6 @@ class UsageStatsService {
   typertRemote: { service: UsageStatsService; serviceKey: string; namespace: string };
   /** 增量扫描存量（懒初始化：sessions 根要到首次查询才确定）。 */
   private store: FoldStore | null = null;
-  /** 生效价目来源：默认 patch config；settings 注册后被替换为 scope.get()（含用户层）。 */
-  priceSource: () => { prices?: Prices } = () => ({ prices: this.config.prices || {} });
 
   constructor(ctx: any, config: CordisConfig) {
     this.ctx = ctx;
@@ -47,22 +40,12 @@ class UsageStatsService {
     this.typertRemote = Object.freeze({ service: this, serviceKey: "usageStats", namespace: "usageStats" });
   }
 
-  /** 当前生效价目表（settings 用户层 > patch base；异常回退 patch）。 */
-  effectivePrices(): Prices {
-    try {
-      const src = this.priceSource();
-      return (src && src.prices) || {};
-    } catch {
-      return this.config.prices || {};
-    }
-  }
-
   /** 全局汇总视图：`{ from?, to?, model?, provider? }`（日期 YYYY-MM-DD 本地时区），缺省全部。 */
   async overview(filter: unknown) {
     const root = sessionsRoot(this.config.sessionsHome);
     if (!this.store) this.store = new FoldStore(root);
     const { folds } = await scanFolds(root, this.store);
-    return buildOverview(folds, normalizeRange(filter), this.effectivePrices());
+    return buildOverview(folds, normalizeRange(filter));
   }
 }
 
@@ -81,28 +64,7 @@ export const inject: string[] = [];
 export function applyCordis(ctx: any, config?: CordisConfig) {
   const service = new UsageStatsService(ctx, config || {});
   ctx.reflect.provide("usageStats", service);
-  // 延迟注入：settings provider 在场才注册命名空间（设置页可编辑价目）；
-  // 不在场则 priceSource 保持 patch config，插件照常出 token 统计（不报钱）。
-  if (typeof ctx.inject === "function") {
-    ctx.inject(["settings"], (settingsCtx: any) => {
-      settingsCtx.settings.installSection(
-        ctx,
-        USAGE_STATS_SETTINGS_NS,
-        UsageStatsSettingsSchema,
-        { prices: config?.prices || {} },
-        {
-          setSource: (source: () => { prices?: Prices }) => {
-            service.priceSource = source;
-          },
-          validate: (value: { prices?: Prices }) => {
-            assertPricesShape(value?.prices);
-          },
-          onChange: () => {},
-        },
-      );
-    });
-  }
-  ctx.logger?.info?.(`[plugin-usage-stats] usageStats remote online (patch prices: ${Object.keys(config?.prices || {}).length})`);
+  ctx.logger?.info?.("[plugin-usage-stats] usageStats remote online");
   return service;
 }
 

@@ -1,9 +1,10 @@
-/** 折叠与聚合口径测试：fixture 驱动（含重试替换、缓存归因、命中率 null 口径、日期窗口）。 */
+/** 折叠与聚合口径测试：fixture 驱动（含重试替换、缓存归因、命中率 null 口径、日期窗口）。
+ *  v4 起聚合面收缩为纯 token 统计：消息数 / 按天 / 费用全部移出 Overview（UI 无消费者）；
+ *  scanner 的 SessionMeta 计数解析保留（会话画像本身仍有语义，由本文件的 foldJsonl 用例看护）。 */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { foldJsonl, localDate } from "../src/scanner.ts";
 import { buildOverview, hitRate, normalizeRange } from "../src/aggregate.ts";
-import { costOf, priceFor } from "../src/pricing.ts";
 
 const DAY = "2026-09-19";
 const T = Date.parse(`${DAY}T08:00:00`); // 本地时区
@@ -48,9 +49,8 @@ test("foldJsonl：折叠数量、重试取末条、unknown 模型、子代理标
 const FOLD_S1 = foldJsonl("hint", FIXTURE.split("\n").slice(0, 12).join("\n"));
 const FOLD_S2 = foldJsonl("hint", [FIXTURE.split("\n")[0].replace("s-1", "s-2x"), FIXTURE.split("\n")[12], FIXTURE.split("\n")[13]].join("\n"));
 
-test("buildOverview：总计/命中率/byModel/byDay/会话数", () => {
-  const prices = { "buzz/qwen-x": { input: 2, output: 8, cacheRead: 0.4, cacheWrite: 2.5 } };
-  const o = buildOverview([FOLD_S1], {}, prices);
+test("buildOverview：总计/命中率/byModel/会话数", () => {
+  const o = buildOverview([FOLD_S1], {});
   assert.equal(o.totals.requests, 2);
   assert.equal(o.totals.input, 220);
   assert.equal(o.totals.output, 50);
@@ -60,19 +60,19 @@ test("buildOverview：总计/命中率/byModel/byDay/会话数", () => {
   assert.ok(Math.abs(o.hitRate! - 1200 / 1420) < 1e-9);
   assert.equal(o.byModel.length, 1);
   assert.equal(o.byModel[0].key, "buzz/qwen-x");
-  assert.equal(o.byDay.length, 1);
   assert.equal(o.sessionCount, 1);
-  // 费用 = (220*2 + 50*8 + 1200*0.4 + 50*2.5)/1e6
-  assert.ok(Math.abs(o.cost! - (440 + 400 + 480 + 125) / 1e6) < 1e-12);
-  assert.equal(o.priced, true);
+  // 死字段回归锁：v4 移除的口径不得借尸还魂。
+  assert.equal("cost" in o, false);
+  assert.equal("byDay" in o, false);
+  assert.equal("messages" in o, false);
+  assert.equal("configuredPrices" in o, false);
 });
 
-test("buildOverview：无价目 → cost null；缓存字段未上报 → hitRate null（UI 显示“—”）", () => {
-  const o = buildOverview([FOLD_S2], {}, {});
-  assert.equal(o.cost, null);
-  assert.equal(o.priced, false);
+test("命中率口径：缓存字段未上报 → null（UI 显示“—”），空分母 → null", () => {
+  const o = buildOverview([FOLD_S2], {});
   // s-2x 的 usage 完全没报 cacheReadTokens/cacheWriteTokens → 无命中率口径
   assert.equal(o.hitRate, null);
+  assert.equal(hitRate({ requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, reportsCache: false }), null);
 });
 
 test("normalizeRange：非法值丢弃、倒挂交换、model/provider 只收非空字符串", () => {
@@ -81,32 +81,21 @@ test("normalizeRange：非法值丢弃、倒挂交换、model/provider 只收非
   assert.deepEqual(normalizeRange({ model: "a/b", provider: " ", n: 3 }), { model: "a/b" });
 });
 
-test("buildOverview：model/provider 过滤在 fact 层生效；维度过滤下 messages=null（无归属口径）", () => {
-  const full = buildOverview([FOLD_S1, FOLD_COUNTS], {}, {});
+test("buildOverview：model/provider 过滤在 fact 层生效", () => {
+  const full = buildOverview([FOLD_S1, FOLD_COUNTS], {});
   assert.equal(full.totals.requests, 3);
-  assert.deepEqual(full.messages, { user: 2, assistant: 5, toolCalls: 2 }, "无维度过滤时消息计数按会话求和（s-1 三条 assistant + s-9 两条）");
-  const byModel = buildOverview([FOLD_S1, FOLD_COUNTS], { model: "buzz/qwen-x" }, {});
+  const byModel = buildOverview([FOLD_S1, FOLD_COUNTS], { model: "buzz/qwen-x" });
   assert.equal(byModel.totals.requests, 3, "全键匹配 s-1 两条 + s-9 一条");
   assert.equal(byModel.byModel.length, 1);
-  assert.equal(byModel.messages, null, "维度过滤后消息计数无口径 → null");
   assert.equal(byModel.sessionCount, 2);
-  const bare = buildOverview([FOLD_S1, FOLD_S2], { model: "qwen-x" }, {});
+  const bare = buildOverview([FOLD_S1, FOLD_S2], { model: "qwen-x" });
   assert.equal(bare.totals.requests, 2, "裸 model 兜底匹配");
-  const prov = buildOverview([FOLD_S1, FOLD_S2], { provider: "unknown" }, {});
+  const prov = buildOverview([FOLD_S1, FOLD_S2], { provider: "unknown" });
   assert.equal(prov.totals.requests, 1, "provider 段精确匹配 s-2x");
   assert.equal(prov.byModel[0].key, "unknown/unknown");
 });
 
-test("pricing：provider/model 精确优先，裸 model 兜底，缺价 null", () => {
-  const prices = { "buzz/m": { input: 1 }, m: { input: 9, output: 9 } };
-  assert.equal(priceFor(prices, "buzz", "m")!.input, 1);
-  assert.equal(priceFor(prices, "other", "m")!.input, 9);
-  assert.equal(priceFor(prices, "x", "nope"), null);
-  assert.equal(costOf({ input: 1e6, output: 0, cacheRead: 0, cacheWrite: 0 }, { input: 3, output: 0, cacheRead: 0, cacheWrite: 0 }), 3);
-  assert.equal(hitRate({ requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, reportsCache: false }), null);
-});
-
-/* ---------------- 会话级计数（overview.messages 数据源） ---------------- */
+/* ---------------- 会话级计数（scanner SessionMeta 画像，聚合层已不消费） ---------------- */
 
 /** 覆盖 user/message、tool/call、无 usage 的 assistant/message 三类计数行的独立 fixture。 */
 const FIXTURE_COUNTS = [
@@ -130,13 +119,4 @@ test("foldJsonl：三计数（user/assistant/tool），无 usage 的 assistant �
   assert.equal(FOLD_COUNTS.meta?.assistantMessages, 2);
   assert.equal(FOLD_COUNTS.meta?.toolCalls, 2);
   assert.equal(FOLD_COUNTS.facts.length, 1, "无 usage 行不产事实");
-});
-
-test("buildOverview：messages 三计数求和 + configuredPrices", () => {
-  const o = buildOverview([FOLD_COUNTS], {}, { "buzz/qwen-x": { input: 1 } });
-  assert.deepEqual(o.messages, { user: 2, assistant: 2, toolCalls: 2 });
-  assert.equal(o.configuredPrices, 1);
-  const empty = buildOverview([FOLD_COUNTS], { from: "2099-01-01" }, {});
-  assert.deepEqual(empty.messages, { user: 0, assistant: 0, toolCalls: 0 }, "窗口外会话不贡献计数");
-  assert.equal(empty.configuredPrices, 0);
 });

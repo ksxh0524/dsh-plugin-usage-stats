@@ -1,9 +1,9 @@
-/** 聚合层：增量扫描调度（状态经 store.ts 持久化）+ 全局总计（消息数 / 四路 token / 命中率 / byModel / byDay / 费用），
+/** 聚合层：增量扫描调度（状态经 store.ts 持久化）+ 全局总计（四路 token / 命中率 / byModel），
  *  overview 支持 model/provider 过滤（fact 层先过滤再聚合，与时间过滤同构）。
- *  所有导出结构保持 JSON-safe，直接作为 Remote 返回值。宿主自带会话统计（轮/步/tok·s/缓存），本包只做全局视角。 */
+ *  所有导出结构保持 JSON-safe，直接作为 Remote 返回值。宿主自带会话统计（轮/步/tok·s/缓存），
+ *  本包只做全局视角；v4 起 UI 不再展示消息数/按天/费用，对应 API 字段同步移除（不留死契约）。 */
 import { stat } from "node:fs/promises";
 import { listSessionFiles, type Fold, type UsageFact } from "./scanner.ts";
-import { costOf, priceFor, type Prices } from "./pricing.ts";
 import { FoldStore } from "./store.ts";
 
 export interface ScanResult {
@@ -45,7 +45,7 @@ export async function scanFolds(root: string, store: FoldStore): Promise<ScanRes
 export interface Range {
   from?: string;
   to?: string;
-  /** 精确模型匹配（"provider/model" 全键或裸 model 键，与服务端价目同规则）。 */
+  /** 精确模型匹配（"provider/model" 全键或裸 model 键）。 */
   model?: string;
   /** 服务商前缀匹配（"provider/" 之前的字段）。 */
   provider?: string;
@@ -73,7 +73,7 @@ function inRange(date: string, range: Range): boolean {
   return true;
 }
 
-/** 模型/服务商过滤在 fact 层生效（与价目同规则：全键 "prov/model" 精确，裸 model 兜底；provider 前缀精确段匹配）。 */
+/** 模型/服务商过滤在 fact 层生效（全键 "prov/model" 精确，裸 model 兜底；provider 全等段匹配）。 */
 function matchesDims(f: UsageFact, range: Range): boolean {
   if (range.provider && f.provider !== range.provider) return false;
   if (range.model && f.model !== range.model && `${f.provider}/${f.model}` !== range.model) return false;
@@ -138,98 +138,36 @@ export interface ModelRow extends Totals {
   model: string;
   key: string;
   hitRate: number | null;
-  cost: number | null;
-}
-
-export interface DayRow extends Totals {
-  date: string;
-  hitRate: number | null;
-  cost: number | null;
-}
-
-export interface MessageCounts {
-  user: number;
-  assistant: number;
-  toolCalls: number;
 }
 
 export interface Overview {
   totals: Totals;
-  /** 会话级消息计数（无维度过滤时）：窗口内有 usage 事实的会话 meta 计数之和；按 model/provider 筛选 = null（无归属口径）。 */
-  messages: MessageCounts | null;
   hitRate: number | null;
-  cost: number | null;
-  priced: boolean;
-  /** 价目表配置的键数（卡底「N 个模型已配价」摘要用，与窗口无关）。 */
-  configuredPrices: number;
   byModel: ModelRow[];
-  byDay: DayRow[];
   sessionCount: number;
   scannedFiles: number;
   generatedAt: number;
 }
 
-export function buildOverview(folds: Fold[], range: Range, prices: Prices): Overview {
+export function buildOverview(folds: Fold[], range: Range): Overview {
   const { facts, metaById } = collectFacts(folds, range);
   const totals = emptyTotals();
   const modelRows = new Map<string, ModelRow>();
-  const dayRows = new Map<string, DayRow>();
-  const pricedModels = new Set<string>();
-  const dayCosts = new Map<string, number>();
-  let costSum = 0;
-  let anyPrice = false;
   for (const f of facts) {
     add(totals, f);
     const key = `${f.provider}/${f.model}`;
-    const price = priceFor(prices, f.provider, f.model);
-    if (price) {
-      pricedModels.add(key);
-      anyPrice = true;
-    }
     let m = modelRows.get(key);
     if (!m) {
-      m = { ...emptyTotals(), provider: f.provider, model: f.model, key, hitRate: null, cost: null };
+      m = { ...emptyTotals(), provider: f.provider, model: f.model, key, hitRate: null };
       modelRows.set(key, m);
     }
     add(m, f);
-    let d = dayRows.get(f.date);
-    if (!d) {
-      d = { ...emptyTotals(), date: f.date, hitRate: null, cost: null };
-      dayRows.set(f.date, d);
-    }
-    add(d, f);
-    const c = costOf({ input: f.input, output: f.output, cacheRead: f.cacheRead, cacheWrite: f.cacheWrite }, price);
-    if (c !== null) {
-      costSum += c;
-      dayCosts.set(f.date, (dayCosts.get(f.date) || 0) + c);
-    }
   }
-  const byModel = [...modelRows.values()]
-    .map((m) => ({ ...m, hitRate: hitRate(m), cost: costOf(m, priceFor(prices, m.provider, m.model)) }))
-    .sort((a, b) => b.total - a.total);
-  const byDay = [...dayRows.values()]
-    .map((d) => ({ ...d, hitRate: hitRate(d), cost: dayCosts.get(d.date) ?? null }))
-    .sort((a, b) => (a.date < b.date ? -1 : 1));
-  // 会话级计数：仅无维度过滤时有口径（消息行不携带模型归因，按 model/provider 筛选后无法归属 → null，客户端隐藏该行）。
-  let messages: MessageCounts | null = null;
-  if (!range.model && !range.provider) {
-    messages = { user: 0, assistant: 0, toolCalls: 0 };
-    for (const meta of new Set(metaById.values())) {
-      if (!meta) continue;
-      messages.user += meta.userMessages || 0;
-      messages.assistant += meta.assistantMessages || 0;
-      messages.toolCalls += meta.toolCalls || 0;
-    }
-  }
+  const byModel = [...modelRows.values()].map((m) => ({ ...m, hitRate: hitRate(m) })).sort((a, b) => b.total - a.total);
   return {
     totals,
-    messages,
     hitRate: hitRate(totals),
-    cost: anyPrice ? costSum : null,
-    priced: anyPrice,
-    configuredPrices: Object.keys(prices).length,
     byModel,
-    byDay,
     sessionCount: metaById.size || new Set(facts.map((f) => f.sessionId)).size,
     scannedFiles: folds.length,
     generatedAt: Date.now(),

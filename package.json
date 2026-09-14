@@ -44,9 +44,6 @@
       "platform": "web"
     }
   },
-  "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.2"
-  },
   "devDependencies": {
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",

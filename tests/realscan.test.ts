@@ -13,9 +13,10 @@ test("真实会话：多帧解码出非零事实，二次扫描 0 重载且 cach
   const t0 = Date.now();
   const first = await scanFolds(root, store);
   assert.ok(first.files > 0, "至少应发现一个会话文件");
-  const o = buildOverview(first.folds, {}, {});
+  const o = buildOverview(first.folds, {});
   assert.ok(o.totals.requests > 0, "真实数据应折叠出非零 usage 事实（多帧解码生效）");
   assert.ok(o.totals.input + o.totals.output > 0);
+  assert.equal("cost" in o, false, "v4 契约：真实链路输出同样不含费用字段");
   assert.ok(Date.now() - t0 < 60_000, "首扫应远小于 60s 挂起阈值");
   // 落盘路径断言在 scan.test.ts（tmp 目录，可控）；此处不重复——真实 home 可能处于只读沙箱。
   const second = await scanFolds(root, store);

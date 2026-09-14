@@ -63,7 +63,7 @@ test("applyCordis：provide 注册 + 绑定可被 validateBinding 语义接受",
     inject: () => {},
     logger: { info: (msg: string) => logs.push(msg) },
   };
-  const svc = applyCordis(ctx, { prices: { "a/b": { input: 1 } } });
+  const svc = applyCordis(ctx, {});
   assert.equal(provided.usageStats, svc);
   const b = svc.typertRemote;
   assert.equal(b.service, svc, "binding.service 必须 === receiver 本体（validateBinding 比对）");
@@ -71,19 +71,18 @@ test("applyCordis：provide 注册 + 绑定可被 validateBinding 语义接受",
   assert.equal(b.namespace, "usageStats");
 });
 
-test("真实链路：overview 出数 + 价目折算 + 维度过滤 + 热缓存", { skip: existsSync(ROOT) ? false : "无会话目录" }, async () => {
+test("真实链路：overview 出数 + 维度过滤 + 热缓存", { skip: existsSync(ROOT) ? false : "无会话目录" }, async () => {
   const ctx: StubCtx = { reflect: { provide: () => () => {} }, logger: undefined };
-  const svc = applyCordis(ctx, { prices: { "opencode-go/glm-5.3-flash": { input: 2, output: 8, cacheRead: 0.2, cacheWrite: 2.5 } } });
+  const svc = applyCordis(ctx, {});
   const o = await svc.overview({});
   assert.ok(o.totals.requests > 0);
-  assert.ok(o.cost === null || o.cost > 0, "有价目模型时 cost 应折算");
   assert.equal(typeof o.hitRate, "number", "真实数据缓存字段有上报");
-  assert.ok(o.byModel.length > 0 && o.byDay.length > 0);
-  assert.ok(o.messages && o.messages.user >= 0, "无维度过滤时消息计数在场");
-  // 维度过滤：不存在的模型 → 空视图 + messages null；存在的首行模型 → 非空且只含该键
+  assert.ok(o.byModel.length > 0);
+  assert.equal("cost" in o, false, "v4 起 Overview 不再携带费用/按天/消息口径");
+  // 维度过滤：不存在的模型 → 空视图；存在的首行模型 → 非空且只含该键
   const empty = await svc.overview({ model: "no/such-model-xyz" });
   assert.equal(empty.totals.requests, 0);
-  assert.equal(empty.messages, null);
+  assert.equal(empty.byModel.length, 0);
   const first = o.byModel[0]!;
   const one = await svc.overview({ model: first.key });
   assert.equal(one.totals.requests, first.requests, "全键过滤应命中该模型行");
