@@ -56,6 +56,12 @@ export interface SessionMeta {
   delegationDepth: number;
   /** 子代理会话（origin/parentSession/delegationDepth>0 任一命中）。 */
   subagent: boolean;
+  /** v2 会话级计数（逐行顺带 O(1)，不做去重）：user/message 行数。 */
+  userMessages: number;
+  /** assistant/message 行数（无 usage 样本的也计）。 */
+  assistantMessages: number;
+  /** tool/call 行数。 */
+  toolCalls: number;
 }
 
 export interface Fold {
@@ -141,9 +147,16 @@ export function foldJsonl(sessionIdHint: string, text: string): Fold {
         createdAt: Number(r.createdAt) || 0,
         delegationDepth: depth,
         subagent: r.origin != null || r.parentSession != null || depth > 0,
+        userMessages: 0,
+        assistantMessages: 0,
+        toolCalls: 0,
       };
     } else if (t === "session/title") {
       if (meta && r.data && typeof r.data.title === "string") meta.title = r.data.title;
+    } else if (t === "user/message") {
+      if (meta) meta.userMessages++;
+    } else if (t === "tool/call") {
+      if (meta) meta.toolCalls++;
     } else if (t === "request/header") {
       const c = r.data?.header?.config;
       if (c && typeof c.model === "string") current = { provider: String(c.provider || "unknown"), model: c.model };
@@ -154,6 +167,7 @@ export function foldJsonl(sessionIdHint: string, text: string): Fold {
       curTurn = Number(r.data?.turn) || curTurn;
       curStep = Number(r.data?.step) || 0;
     } else if (t === "assistant/message") {
+      if (meta) meta.assistantMessages++;
       const u = r.data?.usage;
       if (!u || typeof u.inputTokens !== "number" || typeof u.outputTokens !== "number") continue;
       if (typeof r.time !== "number" || !meta) continue;

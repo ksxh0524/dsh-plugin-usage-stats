@@ -1,71 +1,76 @@
 # dsh-plugin-usage-stats
 
-DSH Web GUI 用量统计插件：全局模型 token 用量（输入/输出/缓存读/缓存写、命中率）与按价目表折算费用，纯只读、零埋点。
+[中文版文档见 README.zh.md](./README.zh.md)
 
-- 数据源：`<DSH_HOME>/sessions/*/*/session.v3.jsonl.zstd`（**所有 workspace 的全局视图**，含子代理会话标记）。
-- 形态：服务端注册 `usageStats` Remote（`overview` / `drillSessions` 两个只读方法）+ `usage-stats` settings 命名空间（价目表持久化）；浏览器半手写 `__ModuleLoader__` 工厂（`lib/client.js`，无构建链），在右侧栏注册「用量」tab。
+A usage-statistics plugin for the DSH (DeepSeek Harness) Web GUI (v2): the **right-sidebar "Usage" tab is a current-session view** (message counts, four token streams, cache hit rate, per-model breakdown, cost), while a **global report card lives in Settings → Plugins → plugin configuration** (session-independent; filter by today / 7 days / 30 days / all / a single day). Strictly read-only, zero instrumentation.
 
-## 安装
+- Data source: `<DSH_HOME>/sessions/*/*/session.v3.jsonl.zstd` — a **global view across all workspaces**, with subagent-session flagging.
+- Shape: the server side registers a `usageStats` Typert Remote (three read-only methods: `overview` / `drillSessions` / `sessionUsage`) plus the `usage-stats` settings namespace (price-table persistence); the browser half is a hand-written `__ModuleLoader__` factory (`lib/client.js`, no build chain). The panel's current-session id comes from the session-scoped standard `sessionId` prop of the `sidebar.right.pane.tab` slot (the same source the official sidebar-files tab uses), so switching sessions reloads the panel automatically.
+
+## Install
 
 ```sh
-dsh plugin --profile <你的profile> add dsh-plugin-usage-stats
+dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 ```
 
-装完**重启该 profile 的 host**（新挂包不在热重载范围）。刷新 Web GUI → 右侧栏 guide 页 → 「用量统计」胶囊 → 以 tab 打开。
+Then **restart that profile's host** (newly mounted packages are not hot-loaded). Reload the Web GUI → right sidebar guide page → the "Usage" pill → opens as a tab.
 
-面板内：时间范围（今天/7 天/30 天/全部）、KPI 卡、按天柱状、按模型表（点行筛选会话下钻）、会话列表（分页）。
+- **Panel (current session)**: session title / short id / cwd / subagent badge, then user messages / agent messages / tool calls / request steps, then total input (uncached) / output / cache read (with hit rate) / cache write, a per-model table, and cost (amount when prices exist, otherwise "—"), plus a Refresh button (rescans session files; a brand-new session not yet on disk shows "usage not captured for this session").
+- **Settings card (global report)**: range chips (today / 7 days / 30 days / all) plus a single-day picker (local time zone), a KPI grid (sessions, messages, four token streams, hit rate, total cost), a per-model table, and a read-only price summary at the bottom (editing goes through settings.yaml, see below). Deliberately lightweight — no price-editing form.
 
-## 口径
+## Metrics
 
-- `inputTokens` = **未缓存输入**（`total = input + output + cacheRead + cacheWrite`，已在真实数据核实）。
-- 命中率 = `cacheRead / (cacheRead + 未缓存输入)`；`cacheWrite` 单列不参与比率。
-- Provider 未上报缓存字段时命中率显示「—」（不误报 0%）。
-- 重试折叠：同一 `(session, turn, step)` scope 只保留末条 usage 样本。
-- 费用：未配置价目的模型只报 token 不报钱。
+- `inputTokens` = **uncached input** (`total = input + output + cacheRead + cacheWrite`, verified against real data).
+- Hit rate = `cacheRead / (cacheRead + uncached input)`; `cacheWrite` is reported separately and excluded from the ratio.
+- Providers that never report cache fields show the hit rate as "—" (never a misleading 0%).
+- Retry folding: within one `(session, turn, step)` scope only the last usage sample survives.
+- Cost: models without a configured price report tokens only, never money.
+- Message counts (v2): `userMessages` counts `user/message` lines, `assistantMessages` counts `assistant/message` lines (including usage-less ones), `toolCalls` counts `tool/call` lines — counted inline at O(1), no dedup. On the global card, messages are summed over the meta of sessions that have usage facts inside the window (deduped by meta object), the same population as the session count.
+- `sessionUsage` aggregates all usage facts of one session (no date filtering); when the session has not been scanned it returns `null` (the panel shows "usage not captured", usually because a brand-new session has not hit disk yet).
 
-## 价目表（元 / 百万 token）
+## Price table (CNY / million tokens)
 
-两层，宿主 settings 语义：**patch base（部署默认）→ 用户设置层覆盖，改后热生效、不重启**。
+Two layers following host settings semantics: **patch base (deployment default) → user settings layer overrides it** — hot-applied, no restart.
 
-1. **用户层（推荐）**：`usage-stats` 命名空间持久化在 `~/.dsh/settings.yaml`（宿主「设置」可打开该文档）：
+1. **User layer (recommended)**: the `usage-stats` namespace persisted in `~/.dsh/settings.yaml` (openable from the host's Settings page):
 
    ```yaml
    usage-stats:
      prices:
        "opencode-go/glm-5.3-flash": { input: 2, output: 8, cacheRead: 0.2, cacheWrite: 2.5 }
-       "some-lora-model": { input: 1 }        # 缺省字段自动按 0 补
+       "some-lora-model": { input: 1 }        # missing fields default to 0
    ```
 
-2. **部署 base**：profile patch 行的 `config.prices`（`dsh plugin` 挂包时的默认值）。
-   注意 patch **整体替换目标行 config**，写 patch 时所有键都要重述：
+2. **Deployment base**: the profile patch line's `config.prices` (the default written by `dsh plugin`).
+   Note: a patch line **replaces the target row's config wholesale** — restate every key when writing one:
 
    ```yaml
    - id: usage-stats
      config:
-       sessionsHome: ""          # 空 = $DSH_HOME/sessions
+       sessionsHome: ""          # empty = $DSH_HOME/sessions
        prices: {}
    ```
 
-键支持 `"provider/model"`（精确优先）或裸 `"model"`（兜底）。数值须 ≥ 0（schema 拒绝负数）。
+Keys accept `"provider/model"` (exact match first) or a bare `"model"` (fallback). Values must be ≥ 0 (the schema rejects negatives).
 
-## 开发
+## Development
 
-本包在宿主 profile 里以 pnpm `link:`（符号链接）挂载时，改源码后**无需重装依赖**：服务端代码改动重启 host 生效，`lib/client.js` 改动刷新页面即生效。若改用 `file:` 挂载则每次须回 profile `pnpm install` 同步拷贝。
+When mounted into a host profile via pnpm `link:` (a symlink), source edits need **no reinstall**: server-side changes apply after a host restart, `lib/client.js` changes apply on page reload. With `file:` mounting you must run `pnpm install` inside the profile to resync the copy each time.
 
-依赖 `@deepseek-ai/schemastery`（settings schema）在 pnpm hoisted 布局下与宿主共用顶层拷贝，无 instanceof 风险。
+The `@deepseek-ai/schemastery` dependency (settings schema) shares the host's top-level copy under a pnpm hoisted layout — no cross-copy instanceof risk.
 
-## 测试
+## Tests
 
 ```sh
 node --test tests/*.test.ts
 ```
 
-fixture 口径测试 + settings 接线测试 + 真实会话目录集成测试（无会话目录自动 skip）。
+Fixture metric tests (folding, message counts, per-session aggregation, price folding, settings wiring) plus integration tests against the real session directory (auto-skipped when none exists).
 
-## 已知边界（v0.1）
+## Known limits (v0.2)
 
-- 会话文件为多帧 zstd 追加流：解码走 `zstd -dc` CLI（缺省回退 node:zlib 单帧解码，可能漏后帧）。
-- 文件级缓存按 `mtime+size`；同文件内只做「整文件重解」，无字节级尾部增量。
-- 面板打开时拉取 + 手动刷新，无服务端推送。
-- 浏览器侧 `$mount` 手写 strict descriptor（结果 schema 透传），两端方法/参数名（`overview(filter)` / `drillSessions(query)`）是隐式契约，改名须同步 `lib/client.js`。
-- 价目设置卡片的 GUI 编辑（设置页卡片）未接：当前用户层经 settings.yaml 文档编辑；数据结构与热生效链路已就绪。
+- Session files are appended multi-frame zstd streams: decoding uses the `zstd -dc` CLI (falling back to node:zlib single-frame decoding when the CLI is absent, which may miss later frames).
+- File-level caching keys on `mtime+size`; a changed file is fully re-decoded — there are no byte-level tail increments.
+- Panel/card fetch on open, on manual refresh, and on session/range changes; there is no server push.
+- The browser side `$mount`s hand-written strict descriptors (result schema is passthrough); method/parameter names (`overview(filter)` / `drillSessions(query)` / `sessionUsage(query)`) are an implicit contract shared with `src/cordis.ts` — renaming on one end must be synced to the other.
+- The settings card is read-only: it shows the global report plus an "N models priced" summary; price editing still happens in the settings.yaml document (the data layer and hot reload are ready; an editing form is intentionally out of scope).

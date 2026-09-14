@@ -18,10 +18,10 @@ test("SRC 标记与 typertRemote 绑定形态符合 gateway 读取契约", () =>
   const marker = Object.getOwnPropertyDescriptor(UsageStatsService.prototype, MARKER_KEY);
   assert.ok(marker, "原型必须挂字符串键 remote-methods 标记（跨副本可读）");
   assert.equal(marker.value.version, 1);
-  assert.deepEqual(marker.value.methods.map((m) => m.method), ["overview", "drillSessions"]);
-  assert.deepEqual(marker.value.methods.map((m) => m.invocation.kind), ["direct", "direct"]);
+  assert.deepEqual(marker.value.methods.map((m) => m.method), ["overview", "drillSessions", "sessionUsage"]);
+  assert.deepEqual(marker.value.methods.map((m) => m.invocation.kind), ["direct", "direct", "direct"]);
   // SRC 参数形态：单一无默认值标识符（gateway 按源码文本解析）
-  for (const m of ["overview", "drillSessions"]) {
+  for (const m of ["overview", "drillSessions", "sessionUsage"]) {
     const src = String(UsageStatsService.prototype[m]);
     assert.match(src, new RegExp(`^async ${m}\\((\\w+)\\)`), `${m} 参数必须是单一标识符`);
   }
@@ -55,6 +55,13 @@ test("真实链路：overview 出数 + 价目折算 + drillSessions 分页", { s
   assert.ok(d1.rows.length <= 5 && d1.total >= d1.rows.length);
   const d2 = await svc.drillSessions({ limit: 5, offset: 5 });
   if (d1.total > 5) assert.notEqual(d1.rows[0].sessionId, d2.rows[0]?.sessionId ?? d1.rows[0].sessionId, "分页不得重复");
+  // v2：当前会话用量——取真实 drill 行头的 sessionId 应命中；坏 id 返回 null
+  const head = d1.rows[0];
+  const su = await svc.sessionUsage({ sessionId: head.sessionId });
+  assert.ok(su && su.sessionId === head.sessionId, "sessionUsage 应命中真实会话");
+  assert.ok(su.totals.requests > 0 && su.byModel.length > 0);
+  assert.ok(su.messages.user + su.messages.assistant + su.messages.toolCalls >= 0, "三计数存在（真实会话至少非负）");
+  assert.equal(await svc.sessionUsage({ sessionId: "no-such-session-xyz" }), null, "缺会话必须返回 null");
   // 缓存生效：第二次 overview 不重新解码（reloaded 为 0 由 scanFolds 内部保证，此处验证不抛且更快）
   const t0 = Date.now();
   await svc.overview({});

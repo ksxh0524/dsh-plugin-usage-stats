@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-usage-stats",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
-  "description": "DSH (DeepSeek Harness) Web GUI plugin: global model token usage stats — input/output/cache read/cache write, cache hit rate, per-model/per-day/per-session breakdown, optional cost via a configurable price table. Right-sidebar usage tab.",
+  "description": "DSH (DeepSeek Harness) Web GUI plugin: model token usage stats — per-session panel (messages, input/output/cache read/write, cache hit rate, per-model, optional cost) in the right sidebar, plus a global report card (per-day filter, totals, per-model) in Settings → Plugins. Read-only; cost via a configurable price table.",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -30,7 +30,8 @@
     "lib",
     "tests",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "README.zh.md"
   ],
   "dsh": {
     "bundle": {
@@ -40,7 +41,8 @@
       "inject": [
         "@deepseek-ai/dsh-api-remotes",
         "@deepseek-ai/dsh-client-ui-sidebar-right",
-        "@deepseek-ai/dsh-client-ui-settings"
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-plugins"
       ],
       "platform": "web"
     }

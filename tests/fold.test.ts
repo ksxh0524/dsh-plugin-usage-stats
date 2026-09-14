@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { foldJsonl, localDate } from "../src/scanner.ts";
-import { buildDrill, buildOverview, hitRate, normalizeDrill, normalizeRange } from "../src/aggregate.ts";
+import { buildDrill, buildOverview, buildSessionUsage, hitRate, normalizeDrill, normalizeRange } from "../src/aggregate.ts";
 import { costOf, priceFor } from "../src/pricing.ts";
 
 const DAY = "2026-09-19";
@@ -102,4 +102,77 @@ test("pricing：provider/model 精确优先，裸 model 兜底，缺价 null", (
   assert.equal(priceFor(prices, "x", "nope"), null);
   assert.equal(costOf({ input: 1e6, output: 0, cacheRead: 0, cacheWrite: 0 }, { input: 3, output: 0, cacheRead: 0, cacheWrite: 0 }), 3);
   assert.equal(hitRate({ requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }), null);
+});
+
+/* ---------------- v2：会话级计数 + buildSessionUsage ---------------- */
+
+/** 覆盖 user/message、tool/call、无 usage 的 assistant/message 三类计数行的独立 fixture。 */
+const FIXTURE_COUNTS = [
+  line("session", 0, { id: "s-9", cwd: "/w/c", createdAt: T }),
+  line("user/message", 1, { data: { content: "你好" } }),
+  line("turn/start", 2, { data: { turn: 1 } }),
+  line("step/start", 3, { data: { turn: 1, step: 1 } }),
+  line("request/header", 4, { data: { header: { config: { provider: "buzz", model: "qwen-x" } } } }),
+  line("assistant/message", 5, { data: { usage: { inputTokens: 10, outputTokens: 2, cacheReadTokens: 30, totalTokens: 42 } } }),
+  line("tool/call", 6, { data: { name: "bash" } }),
+  line("tool/call", 7, { data: { name: "read" } }),
+  line("user/message", 8, { data: { content: "继续" } }),
+  // 无 usage 的 assistant 行：计消息数，但不出 usage 事实
+  line("assistant/message", 9, { data: { content: "收尾" } }),
+].join("\n");
+
+const FOLD_COUNTS = foldJsonl("hint", FIXTURE_COUNTS);
+
+test("foldJsonl：三计数（user/assistant/tool），无 usage 的 assistant 也计数", () => {
+  assert.equal(FOLD_COUNTS.meta?.userMessages, 2);
+  assert.equal(FOLD_COUNTS.meta?.assistantMessages, 2);
+  assert.equal(FOLD_COUNTS.meta?.toolCalls, 2);
+  assert.equal(FOLD_COUNTS.facts.length, 1, "无 usage 行不产事实");
+});
+
+test("buildOverview：messages 三计数求和 + configuredPrices", () => {
+  const o = buildOverview([FOLD_COUNTS], {}, { "buzz/qwen-x": { input: 1 } });
+  assert.deepEqual(o.messages, { user: 2, assistant: 2, toolCalls: 2 });
+  assert.equal(o.configuredPrices, 1);
+  const empty = buildOverview([FOLD_COUNTS], { from: "2099-01-01" }, {});
+  assert.deepEqual(empty.messages, { user: 0, assistant: 0, toolCalls: 0 }, "窗口外会话不贡献计数");
+  assert.equal(empty.configuredPrices, 0);
+});
+
+test("buildSessionUsage：单会话聚合（meta+totals+byModel+费用）", () => {
+  const prices = { "buzz/qwen-x": { input: 2, output: 8, cacheRead: 0.4, cacheWrite: 0 } };
+  const u = buildSessionUsage([FOLD_S1, FOLD_COUNTS], "s-9", prices);
+  assert.ok(u);
+  assert.equal(u.title, "");
+  assert.equal(u.cwd, "/w/c");
+  assert.equal(u.subagent, false);
+  assert.deepEqual(u.messages, { user: 2, assistant: 2, toolCalls: 2 });
+  assert.equal(u.totals.requests, 1);
+  assert.equal(u.totals.input, 10);
+  assert.equal(u.totals.output, 2);
+  assert.equal(u.totals.cacheRead, 30);
+  assert.equal(u.hitRate, 30 / 40);
+  assert.equal(u.priced, true);
+  assert.ok(Math.abs(u.cost! - (20 + 16 + 12) / 1e6) < 1e-12);
+  assert.equal(u.byModel.length, 1);
+  assert.equal(u.byModel[0].key, "buzz/qwen-x");
+  assert.equal(u.firstTime, T + 5000);
+  assert.equal(u.lastTime, T + 5000);
+  // 另一会话互不污染
+  const u1 = buildSessionUsage([FOLD_S1, FOLD_COUNTS], "s-1", {});
+  assert.ok(u1 && u1.totals.requests === 2 && u1.sessionId === "s-1");
+  assert.equal(u1.priced, false);
+  assert.equal(u1.cost, null);
+});
+
+test("buildSessionUsage：缺会话 / 坏入参一律 null", () => {
+  assert.equal(buildSessionUsage([FOLD_COUNTS], "nope", {}), null);
+  assert.equal(buildSessionUsage([FOLD_COUNTS], "", {}), null);
+  // meta 在但无 usage 事实：返回零值视图而非 null（新会话刚创建）
+  const bare: import("../src/scanner.ts").Fold = {
+    facts: [],
+    meta: { ...FOLD_COUNTS.meta!, sessionId: "s-live" },
+  };
+  const z = buildSessionUsage([bare], "s-live", {});
+  assert.ok(z && z.totals.total === 0 && z.messages.user === 2);
 });

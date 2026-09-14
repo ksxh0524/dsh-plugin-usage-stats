@@ -1,4 +1,4 @@
-/** Cordis 入口：注册 `usageStats` 服务（Typert Gateway 只读 Remote：overview / drillSessions）。
+/** Cordis 入口：注册 `usageStats` 服务（Typert Gateway 只读 Remote：overview / drillSessions / sessionUsage）。
  *
  * 设计约束（勿改成 import 官方包）：
  * - 本包运行在宿主 node 进程里，但被 pnpm 链接在文件目录下，若 import
@@ -13,7 +13,7 @@
  * - SRC 模式参数约束：方法参数必须是不带默认值/解构/rest 的单一标识符（gateway 按源码文本解析参数名，
  *   客户端 contribution descriptor 的 wire 名与之一一对应）。
  */
-import { buildDrill, buildOverview, normalizeDrill, normalizeRange, scanFolds, type FileCacheEntry } from "./aggregate.ts";
+import { buildDrill, buildOverview, buildSessionUsage, normalizeDrill, normalizeRange, normalizeSessionId, scanFolds, type FileCacheEntry } from "./aggregate.ts";
 import { sessionsRoot } from "./scanner.ts";
 import { assertPricesShape, USAGE_STATS_SETTINGS_NS, UsageStatsSettingsSchema } from "./settings.ts";
 import type { Prices } from "./pricing.ts";
@@ -65,6 +65,13 @@ class UsageStatsService {
     const { folds } = await scanFolds(root, this.cache);
     return buildDrill(folds, normalizeDrill(query), this.effectivePrices());
   }
+
+  /** 当前会话用量：`{ sessionId }`；未采到该会话返回 null（客户端显示占位）。 */
+  async sessionUsage(query) {
+    const root = sessionsRoot(this.config.sessionsHome);
+    const { folds } = await scanFolds(root, this.cache);
+    return buildSessionUsage(folds, normalizeSessionId(query), this.effectivePrices());
+  }
 }
 
 /** 手写 SRC Remote 标记（形态 = typert-protocol mark() 产物：{version:1, methods:[...]}）。 */
@@ -75,6 +82,7 @@ Object.defineProperty(UsageStatsService.prototype, REMOTE_METHODS_KEY, {
     methods: Object.freeze([
       Object.freeze({ method: "overview", invocation: Object.freeze({ kind: "direct" }) }),
       Object.freeze({ method: "drillSessions", invocation: Object.freeze({ kind: "direct" }) }),
+      Object.freeze({ method: "sessionUsage", invocation: Object.freeze({ kind: "direct" }) }),
     ]),
   }),
 });

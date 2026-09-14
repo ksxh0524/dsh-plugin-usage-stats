@@ -1,7 +1,7 @@
 /** 聚合层：文件级增量缓存（mtime+size 键）+ 总计 / byModel / byDay / bySession 汇总。
  *  所有导出结构保持 JSON-safe，直接作为 Remote 返回值。 */
 import { stat } from "node:fs/promises";
-import { listSessionFiles, readFold, type Fold, type UsageFact } from "./scanner.ts";
+import { listSessionFiles, readFold, type Fold, type SessionMeta, type UsageFact } from "./scanner.ts";
 import { costOf, priceFor, type Prices } from "./pricing.ts";
 
 export interface FileCacheEntry {
@@ -132,11 +132,21 @@ export interface DayRow extends Totals {
   cost: number | null;
 }
 
+export interface MessageCounts {
+  user: number;
+  assistant: number;
+  toolCalls: number;
+}
+
 export interface Overview {
   totals: Totals;
+  /** 会话级消息计数：窗口内有 usage 事实的会话的 meta 计数之和（按 meta 对象去重）。 */
+  messages: MessageCounts;
   hitRate: number | null;
   cost: number | null;
   priced: boolean;
+  /** 价目表配置的键数（卡底「N 个模型已配价」摘要用，与窗口无关）。 */
+  configuredPrices: number;
   byModel: ModelRow[];
   byDay: DayRow[];
   sessionCount: number;
@@ -185,11 +195,21 @@ export function buildOverview(folds: Fold[], range: Range, prices: Prices): Over
   const byDay = [...dayRows.values()]
     .map((d) => ({ ...d, hitRate: hitRate(d), cost: dayCosts.get(d.date) ?? null }))
     .sort((a, b) => (a.date < b.date ? -1 : 1));
+  // 会话级计数：按 meta 对象去重后累加（同文件一会话；跨窗口有事实的会话才计）。
+  const messages: MessageCounts = { user: 0, assistant: 0, toolCalls: 0 };
+  for (const meta of new Set(metaById.values())) {
+    if (!meta) continue;
+    messages.user += meta.userMessages || 0;
+    messages.assistant += meta.assistantMessages || 0;
+    messages.toolCalls += meta.toolCalls || 0;
+  }
   return {
     totals,
+    messages,
     hitRate: hitRate(totals),
     cost: anyPrice ? costSum : null,
     priced: anyPrice,
+    configuredPrices: Object.keys(prices).length,
     byModel,
     byDay,
     sessionCount: metaById.size || new Set(facts.map((f) => f.sessionId)).size,
@@ -203,6 +223,9 @@ export interface SessionRow extends Totals {
   title: string;
   cwd: string;
   subagent: boolean;
+  userMessages: number;
+  assistantMessages: number;
+  toolCalls: number;
   models: string[];
   hitRate: number | null;
   cost: number | null;
@@ -242,12 +265,16 @@ export function buildDrill(folds: Fold[], q: DrillQuery, prices: Prices): DrillR
       if (q.model && `${f.provider}/${f.model}` !== q.model) continue;
       let row = rows.get(f.sessionId);
       if (!row) {
+        const sameMeta = fold.meta && fold.meta.sessionId === f.sessionId ? fold.meta : null;
         row = {
           ...emptyTotals(),
           sessionId: f.sessionId,
           title: fold.meta?.title || "",
           cwd: fold.meta?.cwd || "",
           subagent: !!fold.meta?.subagent,
+          userMessages: sameMeta?.userMessages || 0,
+          assistantMessages: sameMeta?.assistantMessages || 0,
+          toolCalls: sameMeta?.toolCalls || 0,
           models: [],
           hitRate: null,
           cost: null,
@@ -270,4 +297,88 @@ export function buildDrill(folds: Fold[], q: DrillQuery, prices: Prices): DrillR
     .map((r) => ({ ...r, hitRate: hitRate(r), cost: costById.get(r.sessionId) ?? null }))
     .sort((a, b) => b.lastTime - a.lastTime);
   return { rows: all.slice(q.offset, q.offset + q.limit), total: all.length };
+}
+
+/* ---------------- v2：当前会话用量（面板数据源） ---------------- */
+
+export interface SessionUsage {
+  sessionId: string;
+  cwd: string;
+  title: string;
+  subagent: boolean;
+  createdAt: number;
+  delegationDepth: number;
+  messages: MessageCounts;
+  /** 四路 token + requests（重试折叠后口径，与 overview 一致）。 */
+  totals: Totals;
+  hitRate: number | null;
+  cost: number | null;
+  priced: boolean;
+  byModel: ModelRow[];
+  firstTime: number;
+  lastTime: number;
+}
+
+/** `sessionUsage(query)` 入参归一：只认字符串 sessionId，其余一律空串（聚合层回 null）。 */
+export function normalizeSessionId(raw: unknown): string {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return typeof r.sessionId === "string" ? r.sessionId : "";
+}
+
+/** 单会话聚合：meta 字段 + 全部 usage 事实（不筛日期）；会话未被扫到返回 null。 */
+export function buildSessionUsage(folds: Fold[], sessionId: string, prices: Prices): SessionUsage | null {
+  if (!sessionId) return null;
+  let meta: SessionMeta | null = null;
+  const totals = emptyTotals();
+  const modelRows = new Map<string, ModelRow>();
+  let costSum = 0;
+  let anyPrice = false;
+  let firstTime = 0;
+  let lastTime = 0;
+  let found = false;
+  for (const fold of folds) {
+    if (fold.meta && fold.meta.sessionId === sessionId) meta = fold.meta;
+    for (const f of fold.facts) {
+      if (f.sessionId !== sessionId) continue;
+      found = true;
+      add(totals, f);
+      const key = `${f.provider}/${f.model}`;
+      const price = priceFor(prices, f.provider, f.model);
+      if (price) anyPrice = true;
+      let m = modelRows.get(key);
+      if (!m) {
+        m = { ...emptyTotals(), provider: f.provider, model: f.model, key, hitRate: null, cost: null };
+        modelRows.set(key, m);
+      }
+      add(m, f);
+      const c = costOf({ input: f.input, output: f.output, cacheRead: f.cacheRead, cacheWrite: f.cacheWrite }, price);
+      if (c !== null) costSum += c;
+      if (!firstTime || f.time < firstTime) firstTime = f.time;
+      if (f.time > lastTime) lastTime = f.time;
+    }
+  }
+  if (!meta && !found) return null; // 文件未落盘/未扫到/坏 id：客户端显示「未采集到该会话用量」
+  const byModel = [...modelRows.values()]
+    .map((m) => ({ ...m, hitRate: hitRate(m), cost: costOf(m, priceFor(prices, m.provider, m.model)) }))
+    .sort((a, b) => b.total - a.total);
+  return {
+    sessionId,
+    cwd: meta?.cwd || "",
+    title: meta?.title || "",
+    subagent: !!meta?.subagent,
+    createdAt: meta?.createdAt || 0,
+    delegationDepth: meta?.delegationDepth || 0,
+    messages: {
+      user: meta?.userMessages || 0,
+      assistant: meta?.assistantMessages || 0,
+      toolCalls: meta?.toolCalls || 0,
+    },
+    totals,
+    hitRate: hitRate(totals),
+    cost: anyPrice ? costSum : null,
+    priced: anyPrice,
+    byModel,
+    firstTime: firstTime || meta?.createdAt || 0,
+    lastTime,
+  };
 }
