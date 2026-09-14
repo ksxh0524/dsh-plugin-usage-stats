@@ -7,6 +7,7 @@
  *   aggregate → src/aggregate.ts（JSONL 折叠、口径聚合、sessionUsage）
  *   pricing   → src/pricing.ts（价目折算）
  *   settings  → src/settings.ts（schemastery 命名空间与价目层）
+ *   store     → src/store.ts（增量扫描的存量持久化与版本门）
  *   client    → lib/client.js（浏览器半：面板 + 设置卡）
  *   tests     → tests/（仅测试改动时）
  *   infra     → 仓库工具链（.husky/、.github/、commitlint/prettier/tsconfig、AGENTS.md、package.json 的 scripts/devDeps）
@@ -24,7 +25,7 @@ module.exports = {
   rules: {
     "header-max-length": [2, "always", 100],
     "body-max-line-length": [2, "always", 160],
-    "scope-enum": [2, "always", ["cordis", "scanner", "aggregate", "pricing", "settings", "client", "tests", "infra", "deps"]],
+    "scope-enum": [2, "always", ["cordis", "scanner", "aggregate", "pricing", "settings", "store", "client", "tests", "infra", "deps"]],
     "scope-case": [2, "always", "lower-case"],
     // 中文 subject 常见，且允许 AI/API/SRC/GUI 等缩写开头：关掉大小写启发式。
     "subject-case": [0],

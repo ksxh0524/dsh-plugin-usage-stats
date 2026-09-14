@@ -7,7 +7,7 @@ import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { foldFrom, foldJsonl, foldSnapshot, frameSpans, frameWatermark, newFoldState } from "../src/scanner.ts";
-import { FoldStore } from "../src/store.ts";
+import { FoldStore, VERSION } from "../src/store.ts";
 
 let ZSTD_OK = false;
 try {
@@ -134,4 +134,35 @@ test("FoldStore：冷启动全量 → 未变复用零解压 → 追加走增量 
   assert.ok(reopened.rows.has(file), "持久化行恢复");
   const foldC = await reopened.foldFor(file, { size: st2.size, mtimeMs: st2.mtimeMs, ino: st2.ino });
   assert.equal(foldC.facts.length, expected.facts.length, "重启后未变文件 0 重解出同数事实");
+});
+
+test("版本门：低于当前 VERSION 的存量 payload 整体作废冷重扫（unknown facts 冻结教训的保险丝）", { skip: ZSTD_OK ? false : "无 zstd CLI" }, async () => {
+  const T = await mkdtemp(join(tmpdir(), "usg-ver-")); // 独立 tmp：cache 文件不与其他用例共享
+  const ws = join(T, "ws-ver");
+  const root = join(ws, "s-ver");
+  const file = join(root, "session.v3.jsonl.zstd");
+  await mkdir(root, { recursive: true });
+  await writeFile(file, await compressFrame(SESSION_LINES.join("\n") + "\n"));
+  const store = new FoldStore(ws);
+  const st = await stat(file);
+  await store.foldFor(file, { size: st.size, mtimeMs: st.mtimeMs, ino: st.ino });
+  await store.flush(new Set([file]));
+
+  // 盘上必须是当前版本（flush 写 VERSION，不是历史常数）。constructor(root=sessions 区) → cache 落在其父级。
+  const cacheFile = join(T, "cache", "usage-stats.folds.json");
+  const payload = JSON.parse(await readFile(cacheFile, "utf8"));
+  assert.equal(payload.version, VERSION, "落盘 payload 带当前版本");
+  assert.ok(payload.version >= 2, "版本门至少为 2（v1 = 曾冻结 unknown facts 的带病存量）");
+
+  // 手动降级 = 模拟旧版折叠逻辑的存量：load 必须整体拒收，行清零。
+  payload.version = 1;
+  await writeFile(cacheFile, JSON.stringify(payload));
+  const cold = new FoldStore(ws);
+  await cold.load();
+  assert.equal(cold.rows.size, 0, "旧版本 payload 不得复用任何行");
+  // 拒收后重扫 = 全量重建并以当前版本回写。
+  const fold = await cold.foldFor(file, { size: st.size, mtimeMs: st.mtimeMs, ino: st.ino });
+  assert.equal(fold.facts.length, 1, "冷重扫产出正常事实");
+  await cold.flush(new Set([file]));
+  assert.equal(JSON.parse(await readFile(cacheFile, "utf8")).version, VERSION, "回写恢复当前版本");
 });

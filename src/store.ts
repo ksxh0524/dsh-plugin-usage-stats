@@ -4,12 +4,16 @@
  *  size 变小 / inode 变化（文件被替换）→ 该行失效整文件重解。
  *  水位铁律：bytes 只能是 frameWatermark 的真实完整帧边界（文件尾半帧不计），
  *  否则追加后跨水位的帧会被漏掉；半帧尾巴等下次追加补齐。
- *  写盘策略 = 单次扫描若有推进则 tmp+rename 原子落一次；坏文件（JSON 解析失败）静默作废从零开始。 */
+ *  写盘策略 = 单次扫描若有推进则 tmp+rename 原子落一次；坏文件（JSON 解析失败）静默作废从零开始。
+ *  ⚠ 版本铁律：foldJsonl/foldFrom/归因语义任何变化必须 bump VERSION——旧快照里冻结的是
+ *  当时算出的 facts，永不回改（实测教训：scanner 早期误产 unknown-model facts，被增量状态
+ *  带病复用，页面 unknown 行在逻辑修复后仍不消失，只能靠版本门整体作废）。 */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { foldFrom, frameWatermark, hintOf, readFold, reviveState, type Fold, type FoldState } from "./scanner.ts";
 
-const VERSION = 1;
+/** 存量格式+折叠语义的联合版本：与磁盘 payload.version 不符 = 冷启动全量重扫。 */
+export const VERSION = 2;
 
 export interface UnitRow {
   file: string;
