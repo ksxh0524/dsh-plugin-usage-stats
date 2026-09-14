@@ -10,10 +10,21 @@
  *     version 1 校验通过即可被 collectSrcClaims 认领 SRC endpoint）。
  * - 服务注册走 `ctx.reflect.provide(name, instance)`，与 Service 基类构造函数所做的事等价，
  *   fiber 卸载时自动注销。
- * - SRC 模式参数约束：方法参数必须是不带默认值/解构/rest 的单一标识符（gateway 按源码文本解析参数名，
+ * - SRC 模式参数约束：方法参数必须是不带默认值/解构/rest 的单一标识符（gateway 取函数源码切分参数名，
  *   客户端 contribution descriptor 的 wire 名与之一一对应）。
+ *   实测（dsh-api-gateway methodParameterNames + Node type-strip 行为）：`: unknown` 这类简单类型注解
+ *   strip 后替换为空白、解析时按 trim 保留标识符，可安全携带（tsc strict 需要）；默认值/解构/rest 禁止。
  */
-import { buildDrill, buildOverview, buildSessionUsage, normalizeDrill, normalizeRange, normalizeSessionId, scanFolds, type FileCacheEntry } from "./aggregate.ts";
+import {
+  buildDrill,
+  buildOverview,
+  buildSessionUsage,
+  normalizeDrill,
+  normalizeRange,
+  normalizeSessionId,
+  scanFolds,
+  type FileCacheEntry,
+} from "./aggregate.ts";
 import { sessionsRoot } from "./scanner.ts";
 import { assertPricesShape, USAGE_STATS_SETTINGS_NS, UsageStatsSettingsSchema } from "./settings.ts";
 import type { Prices } from "./pricing.ts";
@@ -53,21 +64,21 @@ class UsageStatsService {
   }
 
   /** 汇总视图：`{ from?, to? }`（YYYY-MM-DD，本地时区），缺省全部时间。 */
-  async overview(filter) {
+  async overview(filter: unknown) {
     const root = sessionsRoot(this.config.sessionsHome);
     const { folds } = await scanFolds(root, this.cache);
     return buildOverview(folds, normalizeRange(filter), this.effectivePrices());
   }
 
   /** 会话级下钻：`{ from?, to?, model?, limit?, offset? }`，按最近活跃排序。 */
-  async drillSessions(query) {
+  async drillSessions(query: unknown) {
     const root = sessionsRoot(this.config.sessionsHome);
     const { folds } = await scanFolds(root, this.cache);
     return buildDrill(folds, normalizeDrill(query), this.effectivePrices());
   }
 
   /** 当前会话用量：`{ sessionId }`；未采到该会话返回 null（客户端显示占位）。 */
-  async sessionUsage(query) {
+  async sessionUsage(query: unknown) {
     const root = sessionsRoot(this.config.sessionsHome);
     const { folds } = await scanFolds(root, this.cache);
     return buildSessionUsage(folds, normalizeSessionId(query), this.effectivePrices());
@@ -110,7 +121,7 @@ export function applyCordis(ctx: any, config?: CordisConfig) {
             assertPricesShape(value?.prices);
           },
           onChange: () => {},
-        }
+        },
       );
     });
   }

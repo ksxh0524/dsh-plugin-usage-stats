@@ -21,13 +21,7 @@ export function priceFor(prices: Prices, provider: string, model: string): Price
 }
 
 /** tokens × 元/Mtok → 元；无价目返回 null。 */
-export function costOf(
-  tokens: { input: number; output: number; cacheRead: number; cacheWrite: number },
-  price: Price | null,
-): number | null {
+export function costOf(tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }, price: Price | null): number | null {
   if (!price) return null;
-  return (
-    (tokens.input * price.input + tokens.output * price.output + tokens.cacheRead * price.cacheRead + tokens.cacheWrite * price.cacheWrite) /
-    1e6
-  );
+  return (tokens.input * price.input + tokens.output * price.output + tokens.cacheRead * price.cacheRead + tokens.cacheWrite * price.cacheWrite) / 1e6;
 }

@@ -38,7 +38,7 @@ dsh plugin --profile <你的profile> add dsh-plugin-usage-stats
    usage-stats:
      prices:
        "opencode-go/glm-5.3-flash": { input: 2, output: 8, cacheRead: 0.2, cacheWrite: 2.5 }
-       "some-lora-model": { input: 1 }        # 缺省字段自动按 0 补
+       "some-lora-model": { input: 1 } # 缺省字段自动按 0 补
    ```
 
 2. **部署 base**：profile patch 行的 `config.prices`（`dsh plugin` 挂包时的默认值）。
@@ -47,7 +47,7 @@ dsh plugin --profile <你的profile> add dsh-plugin-usage-stats
    ```yaml
    - id: usage-stats
      config:
-       sessionsHome: ""          # 空 = $DSH_HOME/sessions
+       sessionsHome: "" # 空 = $DSH_HOME/sessions
        prices: {}
    ```
 

@@ -38,7 +38,7 @@ Two layers following host settings semantics: **patch base (deployment default) 
    usage-stats:
      prices:
        "opencode-go/glm-5.3-flash": { input: 2, output: 8, cacheRead: 0.2, cacheWrite: 2.5 }
-       "some-lora-model": { input: 1 }        # missing fields default to 0
+       "some-lora-model": { input: 1 } # missing fields default to 0
    ```
 
 2. **Deployment base**: the profile patch line's `config.prices` (the default written by `dsh plugin`).
@@ -47,7 +47,7 @@ Two layers following host settings semantics: **patch base (deployment default) 
    ```yaml
    - id: usage-stats
      config:
-       sessionsHome: ""          # empty = $DSH_HOME/sessions
+       sessionsHome: "" # empty = $DSH_HOME/sessions
        prices: {}
    ```
 

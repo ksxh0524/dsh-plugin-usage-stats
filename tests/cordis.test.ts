@@ -14,26 +14,60 @@ import { applyCordis, UsageStatsService } from "../src/cordis.ts";
 const MARKER_KEY = "@deepseek-ai/dsh-typert-protocol/remote-methods";
 const ROOT = join(homedir(), ".dsh", "sessions");
 
+/** 原型标记的运行时形态（跨副本可读，测试侧本地声明，避免 import 宿主协议包）。 */
+interface RemoteMethodsMarker {
+  version: number;
+  methods: Array<{ method: string; invocation: { kind: string } }>;
+}
+/** 桩宿主 ctx：真实形态由宿主决定，测试只关心被断言的子集，故宽类型为 any。 */
+type StubCtx = any;
+
 test("SRC 标记与 typertRemote 绑定形态符合 gateway 读取契约", () => {
-  const marker = Object.getOwnPropertyDescriptor(UsageStatsService.prototype, MARKER_KEY);
+  const marker = Object.getOwnPropertyDescriptor(UsageStatsService.prototype, MARKER_KEY) as { value: RemoteMethodsMarker } | undefined;
   assert.ok(marker, "原型必须挂字符串键 remote-methods 标记（跨副本可读）");
   assert.equal(marker.value.version, 1);
-  assert.deepEqual(marker.value.methods.map((m) => m.method), ["overview", "drillSessions", "sessionUsage"]);
-  assert.deepEqual(marker.value.methods.map((m) => m.invocation.kind), ["direct", "direct", "direct"]);
-  // SRC 参数形态：单一无默认值标识符（gateway 按源码文本解析）
+  assert.deepEqual(
+    marker.value.methods.map((m) => m.method),
+    ["overview", "drillSessions", "sessionUsage"],
+  );
+  assert.deepEqual(
+    marker.value.methods.map((m) => m.invocation.kind),
+    ["direct", "direct", "direct"],
+  );
+  // SRC 参数形态：复刻网关 methodParameterNames 的解析（Node type-strip 会把 `: unknown` 注解替换为等长空白，
+  // 网关按「逗号切分 + trim + 纯标识符且唯一」校验；默认值/解构/rest 会被拒绝）。
+  const srcParamNames = (fn: Function): string[] => {
+    const source = Function.prototype.toString.call(fn);
+    const open = source.indexOf("(");
+    const close = source.indexOf(")", open + 1);
+    const body = source.slice(open + 1, close).trim();
+    return body.length === 0 ? [] : body.split(",").map((p) => p.trim());
+  };
+  const proto = UsageStatsService.prototype as any;
   for (const m of ["overview", "drillSessions", "sessionUsage"]) {
-    const src = String(UsageStatsService.prototype[m]);
-    assert.match(src, new RegExp(`^async ${m}\\((\\w+)\\)`), `${m} 参数必须是单一标识符`);
+    const names = srcParamNames(proto[m]);
+    assert.equal(names.length, 1, `${m} 必须是单一业务参数`);
+    assert.match(names[0], /^[$A-Z_a-z][$\w]*$/u, `${m} 参数必须是纯标识符（无默认值/解构/rest/注解残留逗号）`);
   }
+  assert.deepEqual(
+    ["overview", "drillSessions", "sessionUsage"].map((m) => srcParamNames(proto[m])[0]),
+    ["filter", "query", "query"],
+    "wire 参数名 = 客户端 descriptor 的 name（隐式契约）",
+  );
 });
 
 test("applyCordis：provide 注册 + 绑定可被 validateBinding 语义接受", () => {
-  const provided = {};
-  const logs = [];
-  const ctx = {
-    reflect: { provide: (name, value) => { provided[name] = value; return () => delete provided[name]; } },
+  const provided: Record<string, unknown> = {};
+  const logs: string[] = [];
+  const ctx: StubCtx = {
+    reflect: {
+      provide: (name: string, value: unknown) => {
+        provided[name] = value;
+        return () => delete provided[name];
+      },
+    },
     inject: () => {},
-    logger: { info: (msg) => logs.push(msg) },
+    logger: { info: (msg: string) => logs.push(msg) },
   };
   const svc = applyCordis(ctx, { prices: { "a/b": { input: 1 } } });
   assert.equal(provided.usageStats, svc);
@@ -44,8 +78,7 @@ test("applyCordis：provide 注册 + 绑定可被 validateBinding 语义接受",
 });
 
 test("真实链路：overview 出数 + 价目折算 + drillSessions 分页", { skip: existsSync(ROOT) ? false : "无会话目录" }, async () => {
-  const provided = {};
-  const ctx = { reflect: { provide: (n, v) => { provided[n] = v; } }, logger: undefined };
+  const ctx: StubCtx = { reflect: { provide: () => () => {} }, logger: undefined };
   const svc = applyCordis(ctx, { prices: { "opencode-go/glm-5.3-flash": { input: 2, output: 8, cacheRead: 0.2, cacheWrite: 2.5 } } });
   const o = await svc.overview({});
   assert.ok(o.totals.requests > 0);

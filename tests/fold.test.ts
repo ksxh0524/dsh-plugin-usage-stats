@@ -101,7 +101,7 @@ test("pricing：provider/model 精确优先，裸 model 兜底，缺价 null", (
   assert.equal(priceFor(prices, "other", "m")!.input, 9);
   assert.equal(priceFor(prices, "x", "nope"), null);
   assert.equal(costOf({ input: 1e6, output: 0, cacheRead: 0, cacheWrite: 0 }, { input: 3, output: 0, cacheRead: 0, cacheWrite: 0 }), 3);
-  assert.equal(hitRate({ requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }), null);
+  assert.equal(hitRate({ requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, reportsCache: false }), null);
 });
 
 /* ---------------- v2：会话级计数 + buildSessionUsage ---------------- */

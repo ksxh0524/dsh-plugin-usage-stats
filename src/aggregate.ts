@@ -293,9 +293,7 @@ export function buildDrill(folds: Fold[], q: DrillQuery, prices: Prices): DrillR
       if (c !== null) costById.set(f.sessionId, (costById.get(f.sessionId) || 0) + c);
     }
   }
-  const all = [...rows.values()]
-    .map((r) => ({ ...r, hitRate: hitRate(r), cost: costById.get(r.sessionId) ?? null }))
-    .sort((a, b) => b.lastTime - a.lastTime);
+  const all = [...rows.values()].map((r) => ({ ...r, hitRate: hitRate(r), cost: costById.get(r.sessionId) ?? null })).sort((a, b) => b.lastTime - a.lastTime);
   return { rows: all.slice(q.offset, q.offset + q.limit), total: all.length };
 }
 
