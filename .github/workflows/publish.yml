@@ -1,0 +1,33 @@
+name: Publish
+# 打 tag 发 npm：git push tag v* → npm publish（需在仓库 Secrets 配置 NPM_TOKEN = npm Automation 令牌）。
+# tag 即发布点——推 tag 前本地三道门（pnpm check / husky）已过，此处不复跑测试；
+# 只做发布前对账：tag 号必须等于 package.json 的 version，防错版本误发。
+# workflow_dispatch 供漏触发时（如 secret 晚于 tag 配置）在默认分支上手动补发。
+"on":
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance：供应链 attestation 签名
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Version sanity（仅 tag 触发时校验）
+        if: github.event_name == 'push'
+        run: |
+          PKG_VER=$(node -p "require('./package.json').version")
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VER" != "$TAG_VER" ]; then
+            echo "tag v$TAG_VER ≠ package version $PKG_VER，拒发" >&2
+            exit 1
+          fi
+      - run: npm publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
