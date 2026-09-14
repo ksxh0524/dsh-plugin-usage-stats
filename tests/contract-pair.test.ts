@@ -5,7 +5,9 @@
  *  而非契约错位），但契约错位这条风险真实存在，从此由机器兜底而非人肉对表。
  *  descriptor 形态对齐 @deepseek-ai/dsh-typert-generator 的 codegen 产物规范
  *  （emitter.invocationLiteral：acceptsUndefined 显式可选参 + sourceLocation 出处锚点——
- *  后者是机器可校验的：指到服务端真实定义行，方法挪位/改名即红灯）。 */
+ *  后者是机器可校验的：指到服务端真实定义行，方法挪位/改名即红灯）。
+ *  共享实现：本门等价于工作区 plugin-standard/（本地包暂未发 npm；上架后本文件改为
+ *  contractPairSuite() 三行注册，删去本地实现——不留双轨）。 */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
