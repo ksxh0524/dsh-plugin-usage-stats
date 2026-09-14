@@ -20,7 +20,7 @@ Then **restart that profile's host** (newly mounted packages are not hot-loaded)
 
 - **Date range**: one trigger button (never two native inputs) opening a popover: preset chips + a month calendar for arbitrary ranges (local time zone, day granularity). "全部" clears the window.
 - **Filters**: provider and model dropdowns (options derived from the last unfiltered scan; picking a provider narrows the model list). Under a dimension filter the message-count KPI is hidden — message lines carry no model attribution, so there is no honest number to show.
-- **Report**: sessions scanned, total tokens, uncached input / output / cache read (with hit rate) / cache write, then per-model and per-day tables (cost per row when prices are configured), and a read-only price summary at the bottom (editing goes through settings.yaml, see below). Deliberately lightweight — no price-editing form.
+- **Report**: sessions scanned, total tokens, uncached input / output / cache read (with hit rate) / cache write, then a per-model table and a per-day table (the per-day one carries a cost column when prices are configured), and a read-only price summary at the bottom (editing goes through settings.yaml, see below). Deliberately lightweight — no price-editing form.
 
 ## Metrics
 
