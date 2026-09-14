@@ -20,7 +20,7 @@ Then **restart that profile's host** (newly mounted packages are not hot-loaded)
 
 - **Date range**: one trigger button (never two native inputs) opening a popover: preset chips + a month calendar for arbitrary ranges (local time zone, day granularity). "全部" clears the window.
 - **Filters**: provider and model dropdowns (options derived from the last unfiltered scan; picking a provider narrows the model list).
-- **Report**: sessions scanned, total tokens, uncached input / output / cache read (with hit rate) / cache write, then a single per-model table — deliberately **no per-day table**: the date-range filter already answers "what about this day" (set the range to that day). Deliberately lightweight: the report is pure token statistics — money left the product in v4 (the whole price/pricing layer was retired, API included); the footer is just a data-freshness timestamp.
+- **Report**: sessions scanned, total tokens, uncached input / output / cache read (with hit rate) / cache write, then a single per-model table — deliberately **no per-day table**: the date-range filter already answers "what about this day" (set the range to that day). Deliberately lightweight: the report is pure token statistics — money left the product in v4 (the whole price/pricing layer was retired, API included); the footer is just a data-freshness timestamp. Number tiers: exact under 1K, then `K` (≥1K, one decimal), `M` (≥1M, two decimals), `B` (≥100M, two decimals) — trailing zeros trimmed.
 
 ## Metrics
 
