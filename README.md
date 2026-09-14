@@ -2,7 +2,7 @@
 
 [中文](./README.zh.md)
 
-A usage-statistics plugin for the DSH (DeepSeek Harness) Web GUI (v3): a **dedicated "Token 用量" page in Settings** — a global, session-independent report across all workspaces, with a date-range picker (defaults to today; presets 今天 / 近3天 / 近7天 / 近30天 / 全部), **model and provider filters**, KPI grid, per-model and per-day tables, and optional cost. Strictly read-only, zero instrumentation.
+A usage-statistics plugin for the DSH (DeepSeek Harness) Web GUI (v3): a **dedicated "Token 用量" page in Settings** — a global, session-independent report across all workspaces, with a date-range picker (defaults to today; presets 今天 / 近3天 / 近7天 / 近30天 / 全部), **model and provider filters**, a KPI grid and one per-model table. Strictly read-only, zero instrumentation.
 
 Per-session stats (turns/steps, tok/s, cache hit, per-message usage) are **built into the host chat UI** — this plugin deliberately does not duplicate them; v2's sidebar tab and drill-down endpoints were removed for that reason.
 
@@ -19,8 +19,8 @@ dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 Then **restart that profile's host** (newly mounted packages are not hot-loaded). Reload the Web GUI → Settings → General sidebar → **Token 用量**.
 
 - **Date range**: one trigger button (never two native inputs) opening a popover: preset chips + a month calendar for arbitrary ranges (local time zone, day granularity). "全部" clears the window.
-- **Filters**: provider and model dropdowns (options derived from the last unfiltered scan; picking a provider narrows the model list). Under a dimension filter the message-count KPI is hidden — message lines carry no model attribution, so there is no honest number to show.
-- **Report**: sessions scanned, total tokens, uncached input / output / cache read (with hit rate) / cache write, then a per-model table and a per-day table (the per-day one carries a cost column when prices are configured), and a read-only price summary at the bottom (editing goes through settings.yaml, see below). Deliberately lightweight — no price-editing form.
+- **Filters**: provider and model dropdowns (options derived from the last unfiltered scan; picking a provider narrows the model list).
+- **Report**: sessions scanned, total tokens, uncached input / output / cache read (with hit rate) / cache write, then a single per-model table — deliberately **no per-day table**: the date-range filter already answers "what about this day" (set the range to that day). Deliberately lightweight: no cost in the UI (prices still drive the API's `cost` fields), and the footer is just a data-freshness timestamp.
 
 ## Metrics
 
