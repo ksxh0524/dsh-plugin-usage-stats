@@ -51,7 +51,8 @@
     "husky": "^9.1.7",
     "lint-staged": "^15.2.10",
     "prettier": "^3.8.4",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "dsh-check": "link:../dsh-check"
   },
   "engines": {
     "node": ">=22.18.0"
