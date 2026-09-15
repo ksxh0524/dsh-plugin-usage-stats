@@ -226,8 +226,11 @@ test("RangePicker：跨月两段式选取——逐格独立绑定（闭包共享
   assert.equal(sel.length, 1, "拾取中应只有一个 pending 高亮");
   assert.equal(sel[0].props.key, d5);
   fire(cellBy(rt, d12), "onMouseEnter", rt);
+  // 鼠标当前格 = tentative 端点：必须画成实心端点胶囊（用户点名「选到哪、哪高亮」），但非 committed 不占 aria-selected
+  assert.match(cellBy(rt, d12).props.className, /usg-hend/);
+  assert.equal(cellBy(rt, d12).props["aria-selected"], undefined);
   for (const mid of ["06", "07", "08", "09", "10", "11"]) {
-    assert.match(cellBy(rt, PREV_YM + "-" + mid).props.className, /usg-prev/, mid + " 应在预览带内");
+    assert.match(cellBy(rt, PREV_YM + "-" + mid).props.className, /usg-band/, mid + " 应在预览带内");
   }
   fire(cellBy(rt, d12), "onClick", rt);
   assert.equal(cells(rt).length, 0, "commit 后浮层应关闭");
@@ -236,7 +239,7 @@ test("RangePicker：跨月两段式选取——逐格独立绑定（闭包共享
   fire(trigger(rt), "onClick", rt);
   assert.match(cellBy(rt, d5).props.className, /usg-sel/);
   assert.match(cellBy(rt, d12).props.className, /usg-sel/);
-  assert.match(cellBy(rt, PREV_YM + "-08").props.className, /usg-mid/);
+  assert.match(cellBy(rt, PREV_YM + "-08").props.className, /usg-band/);
   assert.match(cellBy(rt, PREV_YM + "-01").props.className, /^usg-pv$/);
   assert.equal(cellBy(rt, d5).props["aria-selected"], "true");
   assert.equal(cellBy(rt, PREV_YM + "-08").props["aria-selected"], undefined);
@@ -271,20 +274,24 @@ test("RangePicker：「清除」回全部且不关浮层；未来日不可点；
   assert.equal(textOf(trigger(rt)), "今天");
 });
 
-test("RangePicker：今天标记与样式规格（38px 大格、16px/500 等宽数字、选中蓝药丸非黑、选择器不互压）", () => {
+test("RangePicker：今天标记与样式规格（40px 大格、18px/500 数字 flex 真居中、选中中性灰非蓝、选择器不互压）", () => {
   const rt = mountPage();
   fire(trigger(rt), "onClick", rt);
   fire(clearBtn(rt), "onClick", rt); // win=null → 今天格显示 today 标记
   assert.match(cellBy(rt, TODAY).props.className, /usg-today/);
   // 静态规格闸：字体/格径/类名/选中色迁移一旦回潮当场红
-  assert.match(CLIENT, /\.usg-pv\{height:38px;line-height:38px;[^"]*font-size:16px;font-weight:500;font-variant-numeric:tabular-nums/);
-  // 选中端点必须 = 真 brand 蓝（deepseek-500）+ 白字：alias-brand-primary 是墨色 token（浅色主题=#0f1115，
-  // 且 invert 同墨）——拿它做填充 = 黑底黑字选中即消失，v3.1 真机踩实，禁止回潮。
-  assert.match(CLIENT, /\.usg-pv\.usg-sel[^{]*\{background:var\(--dsw-static-deepseek-500\);color:var\(--dsw-static-neutral-bluish-00\)/);
-  assert.doesNotMatch(CLIENT, /\.usg-pv[^{]*\{[^}]*background:var\(--dsw-alias-brand-primary\)/);
+  // 居中铁律：flex 三件套（line-height 居中在大字号下会浮到格子上部——用户点名「字占上1/3」）
+  assert.match(
+    CLIENT,
+    /\.usg-pv\{display:flex;align-items:center;justify-content:center;height:40px;[^"]*font-size:18px;font-weight:500;font-variant-numeric:tabular-nums/,
+  );
+  // 端点 = 中性深灰 bluish-700 实底 + 白字（用户禁 brand 蓝；alias-brand-primary 是墨色 token 更不可当填充——
+  // 浅色主题黑底黑字选中即隐形，v3.1 真机踩实，两向都禁止回潮）
+  assert.match(CLIENT, /\.usg-pv\.usg-sel[^{]*\{background:var\(--dsw-static-neutral-bluish-700\);color:var\(--dsw-static-neutral-bluish-00\)/);
+  assert.doesNotMatch(CLIENT, /\.usg-pv[^{]*\{[^}]*background:var\(--dsw-(static-deepseek-\d+|alias-brand-primary)\)/);
   assert.match(CLIENT, /\.usg-wd\{/);
   assert.doesNotMatch(CLIENT, /\.usg-cal>span/);
-  assert.doesNotMatch(CLIENT, /usg-(e|in)\b/);
+  assert.doesNotMatch(CLIENT, /usg-(e|in)\b|usg-(mid|prev)\b/);
   assert.doesNotMatch(CLIENT, /点选起止日|清除（全部）|已选起点/);
   assert.doesNotMatch(CLIENT, /--dsw-alias-label-error|--dsw-alias-button-ghost-active-fill/);
 });
