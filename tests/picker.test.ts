@@ -271,13 +271,13 @@ test("RangePicker：「清除」回全部且不关浮层；未来日不可点；
   assert.equal(textOf(trigger(rt)), "今天");
 });
 
-test("RangePicker：今天标记与样式规格（32px 大格、13px 等宽数字、选择器不再互相压 specificity）", () => {
+test("RangePicker：今天标记与样式规格（38px 大格、15px 等宽数字、选择器不再互相压 specificity）", () => {
   const rt = mountPage();
   fire(trigger(rt), "onClick", rt);
   fire(clearBtn(rt), "onClick", rt); // win=null → 今天格显示 today 标记
   assert.match(cellBy(rt, TODAY).props.className, /usg-today/);
   // 静态规格闸：字体/格径/类名迁移一旦回潮当场红
-  assert.match(CLIENT, /\.usg-pv\{height:32px;line-height:32px;[^"]*font-size:13px;font-variant-numeric:tabular-nums/);
+  assert.match(CLIENT, /\.usg-pv\{height:38px;line-height:38px;[^"]*font-size:15px;font-variant-numeric:tabular-nums/);
   assert.match(CLIENT, /\.usg-wd\{/);
   assert.doesNotMatch(CLIENT, /\.usg-cal>span/);
   assert.doesNotMatch(CLIENT, /usg-(e|in)\b/);
