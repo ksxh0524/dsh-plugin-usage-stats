@@ -63,7 +63,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm format:check && pnpm typecheck && pnpm test"
+    "check": "pnpm format:check && pnpm typecheck && pnpm test",
+    "check:browser": "node --experimental-strip-types --test tests/browser/*.ui.test.ts"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,json,jsonc,md,yml,yaml,html}": "prettier --write"
