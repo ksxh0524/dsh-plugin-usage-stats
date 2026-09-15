@@ -2,7 +2,7 @@
 
 [中文](./README.zh.md)
 
-A usage-statistics plugin for the DSH (DeepSeek Harness) Web GUI (v3): a **dedicated "Token 用量" page in Settings** — a global, session-independent report across all workspaces, with a date-range picker (defaults to today; presets 今天 / 近3天 / 近7天 / 近30天 / 全部), **model and provider filters**, a KPI grid and one per-model table. Strictly read-only, zero instrumentation.
+A usage-statistics plugin for the DSH (DeepSeek Harness) Web GUI (v3): a **dedicated "Token 用量" page in Settings** — a global, session-independent report across all workspaces, with a date-range picker (defaults to today; presets 今天 / 近3天 / 近7天 / 近30天; footer "清除" = all time), **model and provider filters**, a KPI grid and one per-model table. Strictly read-only, zero instrumentation.
 
 Per-session stats (turns/steps, tok/s, cache hit, per-message usage) are **built into the host chat UI** — this plugin deliberately does not duplicate them; v2's sidebar tab and drill-down endpoints were removed for that reason.
 
@@ -18,7 +18,7 @@ dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 
 Then **restart that profile's host** (newly mounted packages are not hot-loaded). Reload the Web GUI → Settings → General sidebar → **Token 用量**.
 
-- **Date range**: one trigger button (never two native inputs) opening a popover: preset chips + a month calendar for arbitrary ranges (local time zone, day granularity). "全部" clears the window.
+- **Date range**: one trigger button (never two native inputs) opening a popover: preset chips + a two-click month-range calendar (local time zone, day granularity) — selected endpoints are solid brand pills, the in-between days a tinted band, a mid-selection preview in a lighter tone. The footer "清除" (the only reset entry) falls back to all time.
 - **Filters**: provider and model dropdowns (options derived from the last unfiltered scan; picking a provider narrows the model list).
 - **Report**: sessions scanned, total tokens, uncached input / output / cache read (with hit rate) / cache write, then a single per-model table — deliberately **no per-day table**: the date-range filter already answers "what about this day" (set the range to that day). Deliberately lightweight: the report is pure token statistics — money left the product in v4 (the whole price/pricing layer was retired, API included); the footer is just a data-freshness timestamp. Number tiers: exact under 1K, then `K` (≥1K, one decimal), `M` (≥1M, two decimals), `B` (≥100M, two decimals) — trailing zeros trimmed.
 

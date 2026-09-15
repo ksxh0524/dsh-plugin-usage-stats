@@ -2,7 +2,7 @@
   "name": "dsh-plugin-usage-stats",
   "version": "0.4.1",
   "type": "module",
-  "description": "DSH (DeepSeek Harness) Web GUI plugin: global model token usage stats as a dedicated \"Token 用量\" page in Settings — incremental session-file scanning with a persistent fold cache, date-range picker with presets, model/provider filters, per-day and per-model breakdowns, cache hit rate, and optional cost via a configurable price table. Per-session stats are built into the host; read-only.",
+  "description": "DSH (DeepSeek Harness) Web GUI plugin: global model token usage stats as a dedicated \"Token 用量\" page in Settings — incremental session-file scanning with a persistent fold cache, self-drawn date-range picker (presets + calendar; footer 清除 resets to all time), model/provider filters, KPI grid, per-model breakdown with cache hit rate. Per-session stats are built into the host; read-only.",
   "keywords": [
     "dsh",
     "deepseek-harness",
