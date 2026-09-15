@@ -49,3 +49,8 @@ fixture 口径测试（折叠、重试取末条、维度过滤、会话画像计
 - 无 `zstd` CLI 时增量按帧喂 node:zlib；再失败则整库回退全量重解（结果正确）。
 - 打开页面、手动刷新、改筛选时拉取；无服务端推送，也不自动轮询。
 - 浏览器侧 `$mount` 手写 strict descriptor（结果 schema 透传）；方法/参数名（`overview(filter)`）与 `src/cordis.ts` 是隐式两端契约，改一端必同步另一端。
+
+## 浏览器 E2E（UI 验证）
+
+`pnpm check:browser` 自起一次性实例，真驱动无头 Chrome 走「设置 → 通用设置 → Token 用量」，
+断言面板挂载且 KPI 渲染。浏览器半改动必须过它（STANDARDS §5，dsh-check 第 8 门）。

@@ -49,3 +49,9 @@ Fixture metric tests (folding, retry replacement, filters, session-profile count
 - Without the `zstd` CLI the incremental path decodes frame-by-frame via node:zlib; if that fails too, the whole-store fallback is a correct full rescan.
 - Fetch on open and on manual refresh / filter change; there is no server push, and no automatic polling.
 - The browser side `$mount`s a hand-written strict descriptor (result schema is passthrough); the method/parameter names (`overview(filter)`) are an implicit contract shared with `src/cordis.ts` — renaming on one end must be synced to the other.
+
+## Browser E2E (UI verification)
+
+`pnpm check:browser` boots a disposable instance and drives headless Chrome through
+settings -> general -> "Token usage", asserting the panel mounts and KPI tiles render.
+Browser-half changes must pass it (STANDARDS section 5, dsh-check gate 8).
