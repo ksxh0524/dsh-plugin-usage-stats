@@ -58,4 +58,4 @@ fixture 口径测试（折叠、重试取末条、维度过滤、会话画像计
 页根不自开滚动也不自带 padding、页有 `<h2>`、页内分组真折叠（`aria-expanded` + `aria-controls`，收起后内容从 DOM 摘掉）、
 KPI 是 `<dl>/<dt>/<dd>` 且表带 `caption`/`th[scope]`、过滤下拉经 portal 逃出页容器且可 `role=menu`/`role=menuitem`
 键盘导航、无自铺 mask（浮层开着时宿主 chrome 仍一点就中）、月历日格是真按钮且未来日原生 `disabled`。
-浏览器半改动必须过它（STANDARDS §4.4 + §5，dsh-check 第 11 门）。
+浏览器半改动必须过它（STANDARDS §4.4 + §5，dsh-check 第 12 门）。

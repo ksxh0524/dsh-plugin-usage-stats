@@ -62,4 +62,4 @@ for real (`aria-expanded` + `aria-controls`, content removed from the DOM), KPIs
 page container through a portal with `role=menu`/`role=menuitem` keyboard navigation and
 no self-made mask (host chrome stays one-click reachable while it is open), and the
 calendar's day cells are real buttons with future days natively `disabled`.
-Browser-half changes must pass it (STANDARDS §4.4 + §5, dsh-check gate 11).
+Browser-half changes must pass it (STANDARDS §4.4 + §5, dsh-check gate 12).
