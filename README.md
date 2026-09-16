@@ -2,7 +2,9 @@
 
 [中文](./README.zh.md)
 
-A usage-statistics plugin for the DSH (DeepSeek Harness) Web GUI (v3): a **dedicated "Token 用量" page in Settings** — a global, session-independent report across all workspaces, with a date-range picker (defaults to today; presets 今天 / 近3天 / 近7天 / 近30天; footer "清除" = all time), **model and provider filters**, a KPI grid and one per-model table. Strictly read-only, zero instrumentation.
+A usage-statistics plugin for the DSH (DeepSeek Harness) Web GUI: a **dedicated "Token 用量" page in Settings** — a global, session-independent report across all workspaces, with a date-range picker (defaults to today; presets 今天 / 近3天 / 近7天 / 近30天; footer "清除" = all time), **model and provider filters**, a KPI grid and one per-model table. Strictly read-only, zero instrumentation.
+
+The page follows the host's own section-page grammar (STANDARDS §4.4): scrolling stays with the host shell (the page root owns no `overflow`/`height`/root padding), width sits on the host tier (760px), a real `<h2>` heads the page while detail tables live in foldable in-page groups, the three read states are wired (`aria-busy`, `role="alert"` + retry, an empty-state line), facts are read out as `<dl>/<dt>/<dd>`, and the filter dropdown is the host `Menu` primitive (portal + outside-pointer + Escape + arrow keys) rather than a hand-rolled popover with a full-screen mask. The date calendar is the one thing the host has no component for: it stays self-drawn but sits on the host's anchoring/dismiss hooks, and its day cells are real buttons.
 
 Per-session stats (turns/steps, tok/s, cache hit, per-message usage) are **built into the host chat UI** — this plugin deliberately does not duplicate them; v2's sidebar tab and drill-down endpoints were removed for that reason.
 
@@ -16,7 +18,7 @@ Per-session stats (turns/steps, tok/s, cache hit, per-message usage) are **built
 dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 ```
 
-Then **restart that profile's host** (newly mounted packages are not hot-loaded). Reload the Web GUI → Settings → General sidebar → **Token 用量**.
+Then **restart that profile's host** (newly mounted packages are not hot-loaded). Reload the Web GUI → Settings → **left nav rail, the entry next to General / Models / Plugins / Agent presets** → **Token 用量**.
 
 - **Date range**: one trigger button (never two native inputs) opening a popover: preset chips + a two-click month-range calendar (local time zone, day granularity). Selection speaks a neutral single-color language (no brand blue): solid pill endpoints, a same-hue lighter band in between that darkens under the cursor so hover always shows where you are, a subtle ring on today; day cells flex-center large 18px numerals. The footer "清除" (the only reset entry) falls back to all time.
 - **Filters**: provider and model dropdowns (options derived from the last unfiltered scan; picking a provider narrows the model list).
@@ -41,7 +43,7 @@ When mounted into a host profile via pnpm `link:` (a symlink), source edits need
 node --test tests/*.test.ts
 ```
 
-Fixture metric tests (folding, retry replacement, filters, session-profile counts, store version gate), byte-accurate frame-walker tests against real `zstd` CLI output (skipped without the CLI), an incremental-equals-full-replay property test with lines deliberately split across frame boundaries, a persistent-store restart test, plus integration tests against the real session directory (auto-skipped when none exists).
+Fixture metric tests (folding, retry replacement, filters, session-profile counts, store version gate), byte-accurate frame-walker tests against real `zstd` CLI output (skipped without the CLI), an incremental-equals-full-replay property test with lines deliberately split across frame boundaries, a persistent-store restart test, plus integration tests against the real session directory (auto-skipped when none exists). `tests/picker.test.ts` renders the browser half in a synchronous mini-React harness (stubbing react / react-dom / the host primitives) to keep the calendar's per-cell bindings honest and to assert the page still passes the workspace's §4.4 structure and §4.3 motion gates.
 
 ## Known limits (v0.4)
 
@@ -52,6 +54,12 @@ Fixture metric tests (folding, retry replacement, filters, session-profile count
 
 ## Browser E2E (UI verification)
 
-`pnpm check:browser` boots a disposable instance and drives headless Chrome through
-settings -> general -> "Token usage", asserting the panel mounts and KPI tiles render.
-Browser-half changes must pass it (STANDARDS section 5, dsh-check gate 8).
+`pnpm check:browser` boots a disposable instance and drives headless Chrome into the
+"Token 用量" section page, asserting the host-conformant shape rather than pixels: the
+root owns no scroller and no root padding, the page has an `<h2>`, in-page groups fold
+for real (`aria-expanded` + `aria-controls`, content removed from the DOM), KPIs are
+`<dl>/<dt>/<dd>` and tables carry `caption`/`th[scope]`, the filter dropdown escapes the
+page container through a portal with `role=menu`/`role=menuitem` keyboard navigation and
+no self-made mask (host chrome stays one-click reachable while it is open), and the
+calendar's day cells are real buttons with future days natively `disabled`.
+Browser-half changes must pass it (STANDARDS §4.4 + §5, dsh-check gate 11).

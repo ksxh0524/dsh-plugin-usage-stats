@@ -2,7 +2,9 @@
 
 [English](./README.md)
 
-DSH（DeepSeek Harness）Web GUI 的用量统计插件（v3）：**设置里的独立「Token 用量」页**——跨全部 workspace 的全局报表（与会话无关）：日期范围选择器（默认今天；预设 今天 / 近3天 / 近7天 / 近30天；底部「清除」= 全部时间）、**按模型与服务商过滤**、KPI 网格与一张按模型明细表。严格只读，零埋点。
+DSH（DeepSeek Harness）Web GUI 的用量统计插件：**设置里的独立「Token 用量」页**——跨全部 workspace 的全局报表（与会话无关）：日期范围选择器（默认今天；预设 今天 / 近3天 / 近7天 / 近30天；底部「清除」= 全部时间）、**按模型与服务商过滤**、KPI 网格与一张按模型明细表。严格只读，零埋点。
+
+页面形态照宿主自己的 section 页规矩来（STANDARDS §4.4）：滚动归宿主壳（页根不写 `overflow`/`height`/根 padding）、页宽落宿主档位（760px）、页级 `<h2>` 顶标题而明细表放进可折叠的页内分组、读视图三态齐（`aria-busy`、`role="alert"`+重试、空态文案）、读数用 `<dl>/<dt>/<dd>`、过滤下拉用宿主 `Menu` 件（portal + 外点 + Escape + 方向键），不再手搓带全屏 mask 的浮层。宿主唯一没有的件是日期月历：本体自绘，但坐在宿主锚定/关闭 hook 的骨架上，日格是真按钮。
 
 单会话统计（轮/步、tok/s、缓存命中、逐条消息用量）**宿主聊天界面自带**——本插件刻意不重复造；v2 的右侧栏 tab 与下钻接口因此删除。
 
@@ -16,7 +18,7 @@ DSH（DeepSeek Harness）Web GUI 的用量统计插件（v3）：**设置里的�
 dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 ```
 
-然后**重启该 profile 的 host**（新挂载的包不会热加载）。刷新 Web GUI → 设置 → 通用侧栏 → **Token 用量**。
+然后**重启该 profile 的 host**（新挂载的包不会热加载）。刷新 Web GUI → 设置 → **左导航栏（与 General / Models / Plugins / Agent presets 同级的那条）** → **Token 用量**。
 
 - **日期范围**：单触发按钮（不是两个原生输入框），弹层内预设快捷键 + 月历两段式范围选择（本地时区、按天粒度）。选中用中性单色语言（不用品牌蓝）：端点实心胶囊、中间同色系浅带且鼠标经过处加深（永远看得到当前悬停在哪）、今天细圈标记；日格 flex 居中、数字 18px 大字。底部「清除」（唯一重置入口）回到全部时间。
 - **过滤**：服务商、模型两个下拉（选项池来自最近一次无过滤扫描；选中服务商后模型列表随之收窄）。
@@ -41,7 +43,7 @@ dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 node --test tests/*.test.ts
 ```
 
-fixture 口径测试（折叠、重试取末条、维度过滤、会话画像计数、store 版本门）、用真 `zstd` CLI 产物对表的帧边界测试（无 CLI 自动 skip）、跨帧半行场景的「增量 === 全量重放」性质测试、持久化 store 重启复用测试，另有真实会话目录集成测试（无会话目录自动 skip）。
+fixture 口径测试（折叠、重试取末条、维度过滤、会话画像计数、store 版本门）、用真 `zstd` CLI 产物对表的帧边界测试（无 CLI 自动 skip）、跨帧半行场景的「增量 === 全量重放」性质测试、持久化 store 重启复用测试，另有真实会话目录集成测试（无会话目录自动 skip）。`tests/picker.test.ts` 用同步 mini-React harness 真渲浏览器半（react / react-dom / 宿主 primitives 都给桩），既守月历逐格独立绑定，也断言现稿仍过工作区的 §4.4 结构门与 §4.3 动效门。
 
 ## 已知边界（v0.4）
 
@@ -52,5 +54,8 @@ fixture 口径测试（折叠、重试取末条、维度过滤、会话画像计
 
 ## 浏览器 E2E（UI 验证）
 
-`pnpm check:browser` 自起一次性实例，真驱动无头 Chrome 走「设置 → 通用设置 → Token 用量」，
-断言面板挂载且 KPI 渲染。浏览器半改动必须过它（STANDARDS §5，dsh-check 第 8 门）。
+`pnpm check:browser` 自起一次性实例，真驱动无头 Chrome 进「Token 用量」页，断言的是宿主同形而非像素：
+页根不自开滚动也不自带 padding、页有 `<h2>`、页内分组真折叠（`aria-expanded` + `aria-controls`，收起后内容从 DOM 摘掉）、
+KPI 是 `<dl>/<dt>/<dd>` 且表带 `caption`/`th[scope]`、过滤下拉经 portal 逃出页容器且可 `role=menu`/`role=menuitem`
+键盘导航、无自铺 mask（浮层开着时宿主 chrome 仍一点就中）、月历日格是真按钮且未来日原生 `disabled`。
+浏览器半改动必须过它（STANDARDS §4.4 + §5，dsh-check 第 11 门）。

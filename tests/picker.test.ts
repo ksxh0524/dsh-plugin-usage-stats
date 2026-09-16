@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import vm from "node:vm";
+import { collectMotionGuardViolations, collectSectionPageStructureViolations } from "dsh-check";
 
 const CLIENT = readFileSync(new URL("../lib/client.js", import.meta.url), "utf8");
 
@@ -146,13 +147,57 @@ function mountPage() {
         },
       },
     },
-    document: { createElement: () => ({ setAttribute() {}, textContent: "" }), head: { appendChild() {} } },
+    document: { createElement: () => ({ setAttribute() {}, textContent: "" }), head: { appendChild() {} }, body: {} },
   };
   vm.createContext(sandbox);
   vm.runInContext(CLIENT, sandbox);
+  /* 浏览器半 require 的 id 必须全在宿主冻结模块种子表里（STANDARDS §4.3），本桩只给这三家：
+   * react = mini React；react-dom 的 createPortal 就地返回节点（否则测不到浮层子树）；
+   * primitives = 真形 hook/Menu/图标——桩走**常路**（宿主 Menu + 宿主锚定/关闭 hook），
+   * 兜底路（原生 select / 就地弹层）由源码闸点名，不在这儿测。 */
+  const createElement = rt.react.createElement;
+  const fakeMenu = function HarnessMenu(props: any) {
+    return createElement(
+      "span",
+      null,
+      props.anchor,
+      props.open
+        ? createElement(
+            "div",
+            { className: "harness-menu-list " + (props.className || ""), role: "menu" },
+            (props.items || []).map((it: any) =>
+              createElement(
+                "button",
+                {
+                  key: it.id,
+                  type: "button",
+                  role: "menuitem",
+                  "aria-selected": props.selectedId === it.id ? "true" : undefined,
+                  onClick: () => props.onSelect(it.id),
+                },
+                it.label,
+              ),
+            ),
+          )
+        : null,
+    );
+  };
+  const stubModules: Record<string, any> = {
+    react: rt.react,
+    "react-dom": { createPortal: (node: any) => node },
+    "@deepseek-ai/dsh-client-ui-primitives": {
+      Menu: fakeMenu,
+      useAnchoredPosition: () => ({ left: 0, top: 0 }),
+      useDismissOnOutsidePointer: () => {},
+      IconChevronDownOutline14: (p: any) => createElement("svg", { ...p, "data-icon": "chevron-down" }),
+      IconChevronLeftOutline14: (p: any) => createElement("svg", { ...p, "data-icon": "chevron-left" }),
+      IconChevronRightOutline14: (p: any) => createElement("svg", { ...p, "data-icon": "chevron-right" }),
+      IconRefreshOutline14: (p: any) => createElement("svg", { ...p, "data-icon": "refresh" }),
+    },
+  };
   const exports: any = mod.factory((id: string) => {
-    assert.equal(id, "react");
-    return rt.react;
+    if (!(id in stubModules)) throw new Error("浏览器半 require 了种子表外的模块：" + id);
+    return stubModules[id];
   });
   let sectionComp: any = null;
   const ctx: any = {
@@ -179,8 +224,10 @@ const PREV = new Date(NOW.getFullYear(), NOW.getMonth() - 1, 1);
 const PREV_YM = PREV.getFullYear() + "-" + p2(PREV.getMonth() + 1);
 const CUR_YM = NOW.getFullYear() + "-" + p2(NOW.getMonth() + 1);
 
-const TRIGGER_TITLE = "选择日期范围（本地时区，按天）";
-const trigger = (rt: any) => collect(rt, (n) => n.type === "button" && n.props.title === TRIGGER_TITLE)[0];
+/** 触发器按 haspopup 语义定位（§4.4：禁 title 当唯一说明、禁 aria-pressed 当弹层态）。 */
+const trigger = (rt: any) => collect(rt, (n) => n.type === "button" && n.props["aria-haspopup"] === "dialog")[0];
+/** 触发器文案 = 「区间」标签 + 当前窗口值（winLabel），断言只认后半截。 */
+const triggerWin = (rt: any) => textOf(trigger(rt)).replace(/^区间/, "");
 const cells = (rt: any) => collect(rt, (n) => typeof n.props.className === "string" && n.props.className.indexOf("usg-pv") === 0);
 const cellBy = (rt: any, key: string) => cells(rt).find((c) => c.props.key === key);
 const selCells = (rt: any) => cells(rt).filter((c) => c.props.className.indexOf("usg-sel") > 0);
@@ -189,14 +236,16 @@ const navBtn = (rt: any, label: string) => collect(rt, (n) => n.type === "button
 
 test("RangePicker：初始挂载——今天为选中态（brand 药丸），预设行无「全部」，脚注只有「清除」", () => {
   const rt = mountPage();
-  assert.equal(textOf(trigger(rt)), "今天");
+  assert.equal(triggerWin(rt), "今天");
+  assert.equal(trigger(rt).props["aria-expanded"], false, "初始应折叠");
   fire(trigger(rt), "onClick", rt);
-  assert.equal(trigger(rt).props["aria-pressed"], "true", "浮层打开时触发器应有按下态描边");
+  assert.equal(trigger(rt).props["aria-expanded"], true, "弹层触发器用 aria-expanded 报开合（非 aria-pressed）");
   assert.ok(cells(rt).length >= 28, "月历未渲染");
   const t = cellBy(rt, TODAY);
   assert.ok(t, "今天格未渲染");
   assert.match(t.props.className, /usg-sel/);
-  assert.equal(t.props["aria-selected"], "true");
+  assert.equal(t.type, "button", "日格必须是真按钮（键盘可达）");
+  assert.equal(t.props["aria-pressed"], "true");
   assert.ok(selCells(rt).length === 1, "初始应只有今天被高亮");
   // 预设行：只剩窗口快捷键，「全部」由底部「清除」唯一承担
   const preRow = collect(rt, (n) => n.props.className === "usg-pre")[0];
@@ -226,23 +275,23 @@ test("RangePicker：跨月两段式选取——逐格独立绑定（闭包共享
   assert.equal(sel.length, 1, "拾取中应只有一个 pending 高亮");
   assert.equal(sel[0].props.key, d5);
   fire(cellBy(rt, d12), "onMouseEnter", rt);
-  // 鼠标当前格 = tentative 端点：必须画成实心端点胶囊（用户点名「选到哪、哪高亮」），但非 committed 不占 aria-selected
+  // 鼠标当前格 = tentative 端点：必须画成实心端点胶囊（用户点名「选到哪、哪高亮」），但非 committed 不占 aria-pressed
   assert.match(cellBy(rt, d12).props.className, /usg-hend/);
-  assert.equal(cellBy(rt, d12).props["aria-selected"], undefined);
+  assert.equal(cellBy(rt, d12).props["aria-pressed"], undefined);
   for (const mid of ["06", "07", "08", "09", "10", "11"]) {
     assert.match(cellBy(rt, PREV_YM + "-" + mid).props.className, /usg-band/, mid + " 应在预览带内");
   }
   fire(cellBy(rt, d12), "onClick", rt);
   assert.equal(cells(rt).length, 0, "commit 后浮层应关闭");
-  assert.equal(textOf(trigger(rt)), d5.slice(5) + " → " + d12.slice(5));
-  // 重开：端点=sel 药丸、中间=区间底带、其余无选中类且 aria-selected 撤销
+  assert.equal(triggerWin(rt), d5.slice(5) + " → " + d12.slice(5));
+  // 重开：端点=sel 药丸、中间=区间底带、其余无选中类且 aria-pressed 撤销
   fire(trigger(rt), "onClick", rt);
   assert.match(cellBy(rt, d5).props.className, /usg-sel/);
   assert.match(cellBy(rt, d12).props.className, /usg-sel/);
   assert.match(cellBy(rt, PREV_YM + "-08").props.className, /usg-band/);
   assert.match(cellBy(rt, PREV_YM + "-01").props.className, /^usg-pv$/);
-  assert.equal(cellBy(rt, d5).props["aria-selected"], "true");
-  assert.equal(cellBy(rt, PREV_YM + "-08").props["aria-selected"], undefined);
+  assert.equal(cellBy(rt, d5).props["aria-pressed"], "true");
+  assert.equal(cellBy(rt, PREV_YM + "-08").props["aria-pressed"], undefined);
 });
 
 test("RangePicker：「清除」回全部且不关浮层；未来日不可点；单日=同格点两次", () => {
@@ -251,13 +300,13 @@ test("RangePicker：「清除」回全部且不关浮层；未来日不可点；
   fire(navBtn(rt, "上一月"), "onClick", rt);
   fire(clearBtn(rt), "onClick", rt);
   // 未选任何范围时「清除」应置灰（当前 win 是默认今天 → 第一下真的清了）
-  assert.equal(textOf(trigger(rt)), "全部");
+  assert.equal(triggerWin(rt), "全部");
   assert.ok(cells(rt).length >= 28, "「清除」不应关闭浮层");
   fire(clearBtn(rt), "onClick", rt);
-  assert.equal(clearBtn(rt).props["aria-disabled"], "true", "已处「全部」态时应禁用语义");
-  // 回到当月：未来日全部 aria-disabled 且点击无效
+  assert.equal(clearBtn(rt).props.disabled, true, "已处「全部」态时应真 disabled（原生禁点，不靠 aria 装饰）");
+  // 回到当月：未来日全部原生 disabled 且点击无效
   fire(navBtn(rt, "下一月"), "onClick", rt);
-  const dimmed = cells(rt).filter((c) => c.props["aria-disabled"] === "true");
+  const dimmed = cells(rt).filter((c) => c.props.disabled === true);
   const lastDay = new Date(NOW.getFullYear(), NOW.getMonth() + 1, 0).getDate();
   if (lastDay > NOW.getDate()) {
     assert.ok(dimmed.length > 0, "当月应有未来日禁格");
@@ -271,7 +320,7 @@ test("RangePicker：「清除」回全部且不关浮层；未来日不可点；
   assert.match(cellBy(rt, TODAY).props.className, /usg-sel/);
   fire(cellBy(rt, TODAY), "onClick", rt);
   assert.equal(cells(rt).length, 0);
-  assert.equal(textOf(trigger(rt)), "今天");
+  assert.equal(triggerWin(rt), "今天");
 });
 
 test("RangePicker：今天标记与样式规格（40px 大格、18px/500 数字 flex 真居中、选中中性灰非蓝、选择器不互压）", () => {
@@ -283,8 +332,14 @@ test("RangePicker：今天标记与样式规格（40px 大格、18px/500 数字 
   // 居中铁律：flex 三件套（line-height 居中在大字号下会浮到格子上部——用户点名「字占上1/3」）
   assert.match(
     CLIENT,
-    /\.usg-pv\{display:flex;align-items:center;justify-content:center;height:40px;[^"]*font-size:18px;font-weight:500;font-variant-numeric:tabular-nums/,
+    /\.usg-pv\{(all:unset;box-sizing:border-box;)?display:flex;align-items:center;justify-content:center;height:40px;[^"]*font-size:18px;font-weight:500;font-variant-numeric:tabular-nums/,
+    "日格必须 flex 真居中（line-height 居中在大字号下浮上去）",
   );
+  assert.match(CLIENT, /\.usg-pv:disabled\{[^}]*cursor:default/, "未来日要真禁点：disabled 样式必须存在（不再是 aria-disabled 装饰）");
+  // 全屏 mask 禁回潮（头注释里那段「旧版违则」记述文字不算产物，故只扫 CSS 块）
+  const cssBlock = CLIENT.slice(CLIENT.indexOf("var CSS"), CLIENT.indexOf("var cssDone"));
+  assert.doesNotMatch(CLIENT, /usg-mask/, "旧版全屏 mask 类名不得回潮");
+  assert.doesNotMatch(cssBlock, /inset\s*:\s*0/, "禁自铺 inset:0 全屏遮罩（压在宿主左导航与关闭 X 之上）");
   // 端点 = 中性深灰 bluish-700 实底 + 白字（用户禁 brand 蓝；alias-brand-primary 是墨色 token 更不可当填充——
   // 浅色主题黑底黑字选中即隐形，v3.1 真机踩实，两向都禁止回潮）
   assert.match(CLIENT, /\.usg-pv\.usg-sel[^{]*\{background:var\(--dsw-static-neutral-bluish-700\);color:var\(--dsw-static-neutral-bluish-00\)/);
@@ -310,4 +365,23 @@ test("浏览器半 CSS 的 --dsw-* token 全部由宿主主题真定义（离线
   assert.ok(referenced.length >= 15, "token 提取异常（CSS 块定位失败？）");
   const undef = referenced.filter((x) => !defined.has(x));
   assert.deepEqual(undef, [], "引用了宿主未定义的 token");
+});
+
+test("§4.4 常路：维度下拉走宿主 Menu（portal + role=menu/menuitem + 键盘由宿主给），且现稿过工作区结构门", () => {
+  const rt = mountPage();
+  /** mini React 每次 flush 造新 vnode，断言前必须重查（拿旧节点会读到过期 props）。 */
+  const dimTrigger = () => collect(rt, (n) => n.type === "button" && n.props["aria-haspopup"] === "menu")[0];
+  assert.ok(dimTrigger(), "服务商/模型过滤触发器缺失（aria-haspopup=menu）");
+  assert.equal(dimTrigger().props["aria-pressed"], undefined, "弹层触发器禁 aria-pressed（开合走 aria-expanded）");
+  assert.equal(dimTrigger().props["aria-expanded"], false);
+  fire(dimTrigger(), "onClick", rt);
+  assert.equal(dimTrigger().props["aria-expanded"], true, "宿主 Menu 的开合态挂在触发器 aria-expanded 上");
+  const menuItems = collect(rt, (n) => n.props.role === "menuitem");
+  assert.ok(menuItems.length >= 1, "宿主 Menu 未渲染 role=menuitem 项（常路没走到 primitives？）");
+  assert.equal(textOf(menuItems[0]), "全部");
+  // 真定义令牌审计 + 结构门：现稿必须零违则（门在 dsh-check，规则与 STANDARDS §4.4 同源）
+  assert.deepEqual(collectSectionPageStructureViolations(CLIENT), [], "STANDARDS §4.4 分区页结构门");
+  assert.deepEqual(collectMotionGuardViolations(CLIENT), [], "STANDARDS §4.3 动效自护门");
+  const requires = [...CLIENT.matchAll(/require\("([^"]+)"\)/g)].map((m) => m[1]).sort();
+  assert.deepEqual(requires, ["@deepseek-ai/dsh-client-ui-primitives", "react", "react-dom"], "浏览器半 require 必须全在宿主冻结模块种子表内（§4.3）");
 });
