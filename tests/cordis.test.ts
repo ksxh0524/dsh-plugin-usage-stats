@@ -85,8 +85,9 @@ test("真实链路：overview 出数 + 维度过滤 + 热缓存", { skip: exists
   assert.equal(empty.byModel.length, 0);
   const first = o.byModel[0]!;
   const one = await svc.overview({ model: first.key });
-  assert.equal(one.totals.requests, first.requests, "全键过滤应命中该模型行");
   assert.equal(one.byModel.length, 1);
+  assert.equal(one.byModel[0]!.key, first.key, "全键过滤应命中该模型行");
+  assert.ok(one.totals.requests >= first.requests, "真实链路活数据：两次读之间新请求落盘只增不减（provider 断言同口径）");
   const prov = await svc.overview({ provider: first.provider });
   assert.ok(prov.totals.requests >= first.requests, "provider 过滤是其模型并集");
   // 热缓存：第二次 overview 不重新解码
