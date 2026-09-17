@@ -40,12 +40,13 @@ class UsageStatsService {
     this.typertRemote = Object.freeze({ service: this, serviceKey: "usageStats", namespace: "usageStats" });
   }
 
-  /** 全局汇总视图：`{ from?, to?, model?, provider? }`（日期 YYYY-MM-DD 本地时区），缺省全部。 */
+  /** 全局汇总视图：`{ from?, to?, model?, provider? }`（日期 YYYY-MM-DD 本地时区），缺省全部。
+   *  已删会话的用量由墓碑账本保留，一并计入（见 store.ts）。 */
   async overview(filter: unknown) {
     const root = sessionsRoot(this.config.sessionsHome);
     if (!this.store) this.store = new FoldStore(root);
-    const { folds } = await scanFolds(root, this.store);
-    return buildOverview(folds, normalizeRange(filter));
+    const { folds, tombs } = await scanFolds(root, this.store);
+    return buildOverview(folds, normalizeRange(filter), tombs);
   }
 }
 

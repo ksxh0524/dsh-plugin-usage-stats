@@ -10,6 +10,7 @@ Per-session stats (turns/steps, tok/s, cache hit, per-message usage) are **built
 
 - Data source: `<DSH_HOME>/sessions/*/*/session.v3.jsonl.zstd` — a **global view across all workspaces**, including subagent sessions.
 - Incremental by design: session files are appended multi-frame zstd streams. A byte-accurate zstd frame walker (RFC 8878 headers, no LZ4 decoding) lets the scanner persist fold state per file and, on later runs, decompress **only newly completed frames**; unchanged files cost zero I/O. Persistent state lives in `<DSH_HOME>/cache/usage-stats.folds.json` (atomic tmp+rename; corrupt or missing state falls back to a full rescan).
+- Retention ledger: deleting a session file no longer deletes its history — already-scanned facts are promoted to a per-session tombstone (the `tombs` section of the same cache file) and stay in the totals; if a live file with the same session reappears, live data wins and the tombstone steps aside (no double counting). The only reset is deleting the cache file.
 - Shape: the server side registers a `usageStats` Typert Remote with a **single read-only method `overview(filter)`**; the browser half is a hand-written `__ModuleLoader__` factory (`lib/client.js`, no build chain) that self-mounts its remote descriptor and injects a `settings.section` entry.
 
 ## Install

@@ -5,6 +5,12 @@
  *  水位铁律：bytes 只能是 frameWatermark 的真实完整帧边界（文件尾半帧不计），
  *  否则追加后跨水位的帧会被漏掉；半帧尾巴等下次追加补齐。
  *  写盘策略 = 单次扫描若有推进则 tmp+rename 原子落一次；坏文件（JSON 解析失败）静默作废从零开始。
+ *
+ *  墓碑账本（v4）：会话文件被删 ≠ 用量没发生过。flush 时消失文件的行不直接丢弃，
+ *  其 facts 按 sessionId 晋升为墓碑（tomb），总览 = 活文件 folds + 墓碑 folds。
+ *  同 sessionId 的活文件重现（恢复/移动回来）→ 活数据权威，墓碑让位，不 double count。
+ *  瞬时解码失败的活文件（行保留、返回空 fold）不触发墓碑升降。清账唯一路径 = 删 cache 文件。
+ *
  *  ⚠ 版本铁律：foldJsonl/foldFrom/归因语义任何变化必须 bump VERSION——旧快照里冻结的是
  *  当时算出的 facts，永不回改（实测教训×2：v1 scanner 误产 unknown facts 被增量状态带病复用；
  *  v2 全量分支丢归因游标致追加 batch 批量误记 unknown——两次都只能靠版本门整体作废）。 */
@@ -13,7 +19,7 @@ import { dirname, join } from "node:path";
 import { foldFrom, frameWatermark, hintOf, readFold, reviveState, type Fold, type FoldState } from "./scanner.ts";
 
 /** 存量格式+折叠语义的联合版本：与磁盘 payload.version 不符 = 冷启动全量重扫。 */
-export const VERSION = 3;
+export const VERSION = 4;
 
 export interface UnitRow {
   file: string;
@@ -31,9 +37,23 @@ export interface UnitRow {
   tail: string;
 }
 
+/** 已删会话的墓碑：该 session 最后一次被扫到的 facts 全量（scope 去重已在行内完成）。
+ *  同文件正常只属一个 session（多 session 行是防御性兼容）：晋升时按 fact.sessionId 分组，
+ *  meta 只挂 sessionId 对得上的那组，对不上记 null（画像缺失不影响 token 口径）。 */
+export interface TombRow {
+  sessionId: string;
+  /** 最后一次见到的文件路径（人读溯源用，不参与键匹配）。 */
+  file: string;
+  deletedAt: number;
+  meta: FoldState["meta"];
+  facts: FoldState["facts"];
+}
+
 export class FoldStore {
   readonly file: string;
   rows = new Map<string, UnitRow>();
+  /** 墓碑账本：已删会话文件的最后已知 facts（key = sessionId；活文件重现即让位）。 */
+  tombs = new Map<string, TombRow>();
   private states = new Map<string, FoldState>();
   private loaded = false;
   dirty = false;
@@ -50,9 +70,14 @@ export class FoldStore {
       const parsed = JSON.parse(await readFile(this.file, "utf8"));
       if (parsed && parsed.version === VERSION && Array.isArray(parsed.units)) {
         for (const u of parsed.units) if (u && typeof u.file === "string" && typeof u.bytes === "number") this.rows.set(u.file, u);
+        if (Array.isArray(parsed.tombs)) {
+          for (const t of parsed.tombs) {
+            if (t && typeof t.sessionId === "string" && Array.isArray(t.facts)) this.tombs.set(t.sessionId, t);
+          }
+        }
       }
     } catch {
-      /* 缺文件/坏文件 = 冷启动 */
+      /* 缺文件/坏文件/版本不符 = 冷启动（含 v3 存量：墓碑字段缺失，按铁律整体作废重扫一次） */
     }
   }
 
@@ -135,20 +160,73 @@ export class FoldStore {
     return { facts: row.facts, meta: row.meta ?? null };
   }
 
-  /** 清理消失文件 + 原子落盘（仅 dirty 时写）。 */
+  /** 清理消失文件 + 原子落盘（仅 dirty 时写）。
+   *  消失文件的行先晋升墓碑（已扫用量不陪葬），再删行；随后按现存行裁墓碑
+   *  （同 sessionId 活着即活数据权威，防复活 double count）。 */
   async flush(aliveFiles: Set<string>): Promise<void> {
-    for (const key of [...this.rows.keys()]) if (!aliveFiles.has(key)) this.rows.delete(key);
+    for (const key of [...this.rows.keys()]) {
+      if (aliveFiles.has(key)) continue;
+      this.promoteRow(key);
+      this.rows.delete(key);
+    }
     for (const key of [...this.states.keys()]) if (!aliveFiles.has(key)) this.states.delete(key);
+    this.pruneTombs();
     if (!this.dirty) return;
     this.dirty = false;
     try {
       await mkdir(dirname(this.file), { recursive: true });
-      const payload = { version: VERSION, units: [...this.rows.values()] };
+      const payload = { version: VERSION, units: [...this.rows.values()], tombs: [...this.tombs.values()] };
       const tmp = this.file + ".tmp";
       await writeFile(tmp, JSON.stringify(payload));
       await rename(tmp, this.file);
     } catch {
       /* cache 写失败不影响查询，下次再试 */
     }
+  }
+
+  /** 消失行晋升墓碑：按 fact.sessionId 分组（常态一组），空 facts 行直接丢弃。 */
+  private promoteRow(path: string): void {
+    const row = this.rows.get(path);
+    if (!row || row.facts.length === 0) return;
+    const bySession = new Map<string, FoldState["facts"]>();
+    for (const f of row.facts) {
+      const g = bySession.get(f.sessionId);
+      if (g) g.push(f);
+      else bySession.set(f.sessionId, [f]);
+    }
+    const now = Date.now();
+    for (const [sid, facts] of bySession) {
+      this.tombs.set(sid, {
+        sessionId: sid,
+        file: path,
+        deletedAt: now,
+        meta: row.meta && row.meta.sessionId === sid ? row.meta : null,
+        facts,
+      });
+    }
+    this.dirty = true;
+  }
+
+  /** 按现存行裁墓碑：tomb.sessionId 仍被任一活行产出（行 facts 或 meta）即删墓碑，活数据永远权威。
+   *  依据必须用 rows 而非本轮返回的 folds：瞬时解码失败的活文件返回空 fold 但行保留，
+   *  按返回 folds 裁会误判该 session 已消失。 */
+  private pruneTombs(): void {
+    if (this.tombs.size === 0) return;
+    const live = new Set<string>();
+    for (const row of this.rows.values()) {
+      if (row.meta) live.add(row.meta.sessionId);
+      for (const f of row.facts) live.add(f.sessionId);
+    }
+    for (const sid of [...this.tombs.keys()]) {
+      if (live.has(sid)) {
+        this.tombs.delete(sid);
+        this.dirty = true;
+      }
+    }
+  }
+
+  /** 墓碑 folds（总览输入；与活 folds 同构，scannedFiles 口径不含它们）。 */
+  tombFolds(): Fold[] {
+    return [...this.tombs.values()].map((t) => ({ facts: t.facts, meta: t.meta ?? null }));
   }
 }

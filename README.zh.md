@@ -10,6 +10,7 @@ DSH（DeepSeek Harness）Web GUI 的用量统计插件：**设置里的独立「
 
 - 数据源：`<DSH_HOME>/sessions/*/*/session.v3.jsonl.zstd`——**跨全部 workspace 的全局视图**，含子代理会话。
 - 增量设计：会话文件是追加式多帧 zstd。字节级精确的帧 walker（RFC 8878 帧头/块头，不碰 LZ4）让扫描器按文件持久化折叠状态，后续只解压**新完成的帧**，未变文件零解压开销。状态落 `<DSH_HOME>/cache/usage-stats.folds.json`（tmp+rename 原子写；状态损坏或缺失自动整文件重扫）。
+- 删除保留：会话文件删了，已扫用量不陪葬——facts 按 sessionId 晋升墓碑（同 cache 文件的 `tombs` 段）继续计入总览；同 session 的活文件重现则活数据权威、墓碑让位（不 double count）。清账唯一路径 = 删 cache 文件。
 - 形态：服务端注册 `usageStats` Typert Remote（**单只读方法 `overview(filter)`**）；浏览器半是手写 `__ModuleLoader__` 工厂（`lib/client.js`，无构建链），自挂 remote descriptor 并注入 `settings.section` 页面。
 
 ## 安装

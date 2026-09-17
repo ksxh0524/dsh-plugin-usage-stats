@@ -3,10 +3,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { foldFrom, foldJsonl, foldSnapshot, frameSpans, frameWatermark, newFoldState } from "../src/scanner.ts";
+import { buildOverview, scanFolds } from "../src/aggregate.ts";
 import { FoldStore, VERSION } from "../src/store.ts";
 
 let ZSTD_OK = false;
@@ -152,7 +153,7 @@ test("版本门：低于当前 VERSION 的存量 payload 整体作废冷重扫�
   const cacheFile = join(T, "cache", "usage-stats.folds.json");
   const payload = JSON.parse(await readFile(cacheFile, "utf8"));
   assert.equal(payload.version, VERSION, "落盘 payload 带当前版本");
-  assert.ok(payload.version >= 3, "版本门至少为 3（v1 = 曾冻结 unknown facts 的带病存量；v2 = 全量分支丢归因游标）");
+  assert.ok(payload.version >= 4, "版本门至少为 4（v1/v2 unknown 教训；v3 无墓碑字段）");
 
   // 手动降级 = 模拟旧版折叠逻辑的存量：load 必须整体拒收，行清零。
   payload.version = 1;
@@ -224,4 +225,76 @@ test("FoldStore 全量落盘保留归因游标：稀疏 header 跨 batch 追加�
     ["s-cur:1:1", "s-cur:1:2", "s-cur:2:1", "s-cur:2:2"],
     "scope 不得错成 -1:-1",
   );
+});
+
+test("墓碑账本：文件删除后已扫用量保留，复活不 double count", { skip: ZSTD_OK ? false : "无 zstd CLI" }, async () => {
+  const T = await mkdtemp(join(tmpdir(), "usg-tomb-"));
+  const root = join(T, "sessions"); // scanFolds root = 会话根（root/<slug>/<dir>/session.v3.jsonl.zstd）
+  const file = join(root, "ws-tomb", "s-tomb", "session.v3.jsonl.zstd");
+  await mkdir(join(root, "ws-tomb", "s-tomb"), { recursive: true });
+  const now = Date.now();
+  const L = (type: string, extra: Record<string, unknown> = {}) => JSON.stringify({ type, time: now, ...extra });
+  const lines = [
+    L("session", { id: "s-tomb", cwd: "/w", createdAt: now }),
+    L("turn/start", { data: { turn: 1 } }),
+    L("step/start", { data: { turn: 1, step: 1 } }),
+    L("request/header", { data: { header: { config: { provider: "prov-a", model: "m-1" } } } }),
+    L("assistant/message", { data: { usage: { inputTokens: 10, outputTokens: 1 } } }),
+    L("step/start", { data: { turn: 1, step: 2 } }),
+    L("assistant/message", { data: { usage: { inputTokens: 11, outputTokens: 2 } } }),
+  ];
+  const frame = await compressFrame(lines.join("\n") + "\n");
+  await writeFile(file, frame);
+
+  const store = new FoldStore(root);
+  let r = await scanFolds(root, store);
+  assert.equal(r.files, 1);
+  assert.equal(r.tombs.length, 0, "活文件不产墓碑");
+  let o = buildOverview(r.folds, {}, r.tombs);
+  assert.equal(o.totals.requests, 2);
+  assert.equal(o.sessionCount, 1);
+
+  // 删文件 → 行晋升墓碑，总量/sessionCount 不变，scannedFiles 归零。
+  await unlink(file);
+  r = await scanFolds(root, store);
+  assert.equal(r.files, 0);
+  assert.equal(r.folds.length, 0);
+  assert.equal(r.tombs.length, 1, "消失文件的行晋升墓碑");
+  assert.equal(store.rows.size, 0, "行已清理，游标不留");
+  o = buildOverview(r.folds, {}, r.tombs);
+  assert.equal(o.totals.requests, 2, "已删会话的用量保留");
+  assert.equal(o.totals.input, 21);
+  assert.equal(o.sessionCount, 1);
+  assert.equal(o.scannedFiles, 0, "scannedFiles 只计活文件");
+  assert.equal(o.byModel[0].key, "prov-a/m-1", "墓碑归因不丢");
+
+  // 同 sessionId 文件回来 → 活数据权威，墓碑让位，总量仍是 2 不是 4。
+  await writeFile(file, frame);
+  r = await scanFolds(root, store);
+  assert.equal(r.tombs.length, 0, "复活即裁墓碑");
+  o = buildOverview(r.folds, {}, r.tombs);
+  assert.equal(o.totals.requests, 2, "复活不 double count");
+  assert.equal(o.scannedFiles, 1);
+});
+
+test("版本门 v4：v3 存量整体作废（无墓碑字段，按铁律冷重扫）", { skip: ZSTD_OK ? false : "无 zstd CLI" }, async () => {
+  const T = await mkdtemp(join(tmpdir(), "usg-tombver-"));
+  const root = join(T, "sessions");
+  const file = join(root, "ws-v", "s-v", "session.v3.jsonl.zstd");
+  await mkdir(join(root, "ws-v", "s-v"), { recursive: true });
+  await writeFile(file, await compressFrame(SESSION_LINES.join("\n") + "\n"));
+  const store = new FoldStore(root);
+  await scanFolds(root, store);
+  const cacheFile = join(T, "cache", "usage-stats.folds.json");
+  const payload = JSON.parse(await readFile(cacheFile, "utf8"));
+  assert.equal(payload.version, VERSION);
+
+  payload.version = 3; // 模拟修复前的存量（游标可能带病 + 无墓碑）
+  await writeFile(cacheFile, JSON.stringify(payload));
+  const cold = new FoldStore(root);
+  await cold.load();
+  assert.equal(cold.rows.size, 0, "v3 行不得复用");
+  assert.equal(cold.tombs.size, 0, "v3 无墓碑可继承");
+  const r = await scanFolds(root, cold);
+  assert.equal(buildOverview(r.folds, {}, r.tombs).totals.requests, 1, "冷重扫重建口径");
 });
