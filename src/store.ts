@@ -6,14 +6,14 @@
  *  否则追加后跨水位的帧会被漏掉；半帧尾巴等下次追加补齐。
  *  写盘策略 = 单次扫描若有推进则 tmp+rename 原子落一次；坏文件（JSON 解析失败）静默作废从零开始。
  *  ⚠ 版本铁律：foldJsonl/foldFrom/归因语义任何变化必须 bump VERSION——旧快照里冻结的是
- *  当时算出的 facts，永不回改（实测教训：scanner 早期误产 unknown-model facts，被增量状态
- *  带病复用，页面 unknown 行在逻辑修复后仍不消失，只能靠版本门整体作废）。 */
+ *  当时算出的 facts，永不回改（实测教训×2：v1 scanner 误产 unknown facts 被增量状态带病复用；
+ *  v2 全量分支丢归因游标致追加 batch 批量误记 unknown——两次都只能靠版本门整体作废）。 */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { foldFrom, frameWatermark, hintOf, readFold, reviveState, type Fold, type FoldState } from "./scanner.ts";
 
 /** 存量格式+折叠语义的联合版本：与磁盘 payload.version 不符 = 冷启动全量重扫。 */
-export const VERSION = 2;
+export const VERSION = 3;
 
 export interface UnitRow {
   file: string;
@@ -77,9 +77,11 @@ export class FoldStore {
       }
     }
     // 冷启动 / 文件被替换 / size 倒退 / 无水位：整文件重解，水位取真实帧边界（尾半帧留给下次）。
-    let fold: Fold;
+    // 游标必须落终态实值（header 稀疏跨 turn 有效，增量续跑靠它归因；曾硬编码 unknown/-1/-1，
+    // 导致追加 batch 的 usage 批量误记 unknown/unknown，v3 版本门作废带病存量）。
+    let full: FoldState;
     try {
-      fold = await readFold(path);
+      full = await readFold(path);
     } catch {
       // 解码失败：不落行——增量续跑要求存量状态完整（首帧含 session/meta 行），坏文件每轮重试（与旧缓存语义一致）。
       return { facts: [], meta: null };
@@ -92,13 +94,13 @@ export class FoldStore {
       mtimeMs: st.mtimeMs,
       ino: st.ino,
       bytes: wm,
-      meta: fold.meta,
-      provider: "unknown",
-      model: "unknown",
-      curTurn: -1,
-      curStep: -1,
-      facts: fold.facts,
-      tail: "",
+      meta: full.meta,
+      provider: full.provider,
+      model: full.model,
+      curTurn: full.curTurn,
+      curStep: full.curStep,
+      facts: full.facts,
+      tail: full.tail,
     };
     this.rows.set(path, fresh);
     this.states.delete(path); // 全量重解后旧 state 作废，下次增量从快照重建

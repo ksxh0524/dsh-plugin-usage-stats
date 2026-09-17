@@ -197,10 +197,17 @@ export function foldChunk(s: FoldState, text: string): void {
 
 /** 折叠一个会话的 JSONL 文本为 UsageFact[] + SessionMeta（纯函数，可单测；= 全量 foldChunk 薄包装 + 尾行结算）。 */
 export function foldJsonl(sessionIdHint: string, text: string): Fold {
+  return foldSnapshot(foldFull(sessionIdHint, text));
+}
+
+/** 全量折叠并保留终态游标（模型归因/turn/step/tail）：store.ts 全量分支落盘用。
+ *  上游 header 稀疏（跨 turn 持续有效，见 llm-retry/history.ts），游标必须跨增量 batch 保持，
+ *  否则新 batch 的 usage 因 batch 内无 header 被误记 unknown（连 scope 都可能错成 -1:-1）。 */
+export function foldFull(sessionIdHint: string, text: string): FoldState {
   const s = newFoldState(sessionIdHint);
   foldChunk(s, text);
   if (s.tail) foldChunk(s, "\n"); // 无换行结尾的最后一行也要结算（旧 split 语义等价）
-  return foldSnapshot(s);
+  return s;
 }
 
 const FILE_NAME = "session.v3.jsonl.zstd";
@@ -319,9 +326,10 @@ export function hintOf(path: string): string {
   return parts[parts.length - 2] || "unknown";
 }
 
-/** 读单个会话文件并全量折叠（首轮/失效重扫路径）。解码失败上抛，空 fold 兜底在 store 层决策。 */
-export async function readFold(path: string): Promise<Fold> {
-  return foldJsonl(hintOf(path), await decompressZstd(path));
+/** 读单个会话文件并全量折叠（首轮/失效重扫路径）：返回终态 FoldState（facts/meta + 归因游标），
+ *  调用方落盘时必须原样持久化游标（header 稀疏，增量续跑依赖它）。解码失败上抛，空 fold 兜底在 store 层决策。 */
+export async function readFold(path: string): Promise<FoldState> {
+  return foldFull(hintOf(path), await decompressZstd(path));
 }
 
 /** 从持久 FoldState 续建运行时状态（scopeIndex 重建）。 */

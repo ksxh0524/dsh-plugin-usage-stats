@@ -152,7 +152,7 @@ test("版本门：低于当前 VERSION 的存量 payload 整体作废冷重扫�
   const cacheFile = join(T, "cache", "usage-stats.folds.json");
   const payload = JSON.parse(await readFile(cacheFile, "utf8"));
   assert.equal(payload.version, VERSION, "落盘 payload 带当前版本");
-  assert.ok(payload.version >= 2, "版本门至少为 2（v1 = 曾冻结 unknown facts 的带病存量）");
+  assert.ok(payload.version >= 3, "版本门至少为 3（v1 = 曾冻结 unknown facts 的带病存量；v2 = 全量分支丢归因游标）");
 
   // 手动降级 = 模拟旧版折叠逻辑的存量：load 必须整体拒收，行清零。
   payload.version = 1;
@@ -165,4 +165,63 @@ test("版本门：低于当前 VERSION 的存量 payload 整体作废冷重扫�
   assert.equal(fold.facts.length, 1, "冷重扫产出正常事实");
   await cold.flush(new Set([file]));
   assert.equal(JSON.parse(await readFile(cacheFile, "utf8")).version, VERSION, "回写恢复当前版本");
+});
+
+test("FoldStore 全量落盘保留归因游标：稀疏 header 跨 batch 追加不产 unknown（v2 丢游标回归）", { skip: ZSTD_OK ? false : "无 zstd CLI" }, async () => {
+  // 真实 DSH 形态：header 只在首 turn 出现一次（跨 turn 持续有效），追加 batch 内无 header、
+  // 且匹配的 turn/start 已在上一 batch 被消费——增量归因全靠存量游标。
+  const T = await mkdtemp(join(tmpdir(), "usg-cursor-"));
+  const ws = join(T, "ws-cur");
+  const root = join(ws, "s-cur");
+  const file = join(root, "session.v3.jsonl.zstd");
+  await mkdir(root, { recursive: true });
+  const now = Date.now();
+  const L = (type: string, extra: Record<string, unknown> = {}) => JSON.stringify({ type, time: now, ...extra });
+  const batch1 = [
+    L("session", { id: "s-cur", cwd: "/w", createdAt: now }),
+    L("turn/start", { data: { turn: 1 } }),
+    L("step/start", { data: { turn: 1, step: 1 } }),
+    L("request/header", { data: { header: { config: { provider: "prov-a", model: "m-1" } } } }),
+    L("assistant/message", { data: { usage: { inputTokens: 10, outputTokens: 1 } } }),
+    L("step/start", { data: { turn: 1, step: 2 } }),
+    L("assistant/message", { data: { usage: { inputTokens: 11, outputTokens: 2 } } }),
+  ];
+  // batch2：新 turn 无 header（上游常态），step/start 自带 turn/step 恢复位置，但 provider 只能来自存量游标。
+  const batch2 = [
+    L("turn/start", { data: { turn: 2 } }),
+    L("step/start", { data: { turn: 2, step: 1 } }),
+    L("assistant/message", { data: { usage: { inputTokens: 12, outputTokens: 3 } } }),
+    L("step/start", { data: { turn: 2, step: 2 } }),
+    L("assistant/message", { data: { usage: { inputTokens: 13, outputTokens: 4 } } }),
+  ];
+  const f1 = await compressFrame(batch1.join("\n") + "\n");
+  const f2 = await compressFrame(batch2.join("\n") + "\n");
+  await writeFile(file, f1);
+
+  const store = new FoldStore(ws);
+  const st1 = await stat(file);
+  const foldA = await store.foldFor(file, { size: st1.size, mtimeMs: st1.mtimeMs, ino: st1.ino });
+  assert.equal(foldA.facts.length, 2);
+  // 全量分支必须落盘终态游标（v2 在此硬编码 unknown/-1/-1，是本回归的抓点）。
+  const row = store.rows.get(file)!;
+  assert.equal(row.provider, "prov-a", "全量落盘保留 header 归因");
+  assert.equal(row.model, "m-1");
+  assert.equal(row.curTurn, 1);
+  assert.equal(row.curStep, 2);
+
+  // 追加 batch2 → 增量：等价一次性全量，全员 prov-a/m-1、零 unknown、scope 正确。
+  await writeFile(file, Buffer.concat([f1, f2]));
+  const st2 = await stat(file);
+  const foldB = await store.foldFor(file, { size: st2.size, mtimeMs: st2.mtimeMs, ino: st2.ino });
+  const expected = foldJsonl("s-cur", [...batch1, ...batch2].join("\n") + "\n");
+  assert.deepEqual(
+    foldB.facts.map((f) => `${f.scope}:${f.provider}/${f.model}:${f.input}`),
+    expected.facts.map((f) => `${f.scope}:${f.provider}/${f.model}:${f.input}`),
+  );
+  assert.ok(foldB.facts.length === 4 && foldB.facts.every((f) => f.provider === "prov-a" && f.model === "m-1"), "稀疏 header 下增量不得产 unknown");
+  assert.deepEqual(
+    foldB.facts.map((f) => f.scope),
+    ["s-cur:1:1", "s-cur:1:2", "s-cur:2:1", "s-cur:2:2"],
+    "scope 不得错成 -1:-1",
+  );
 });
