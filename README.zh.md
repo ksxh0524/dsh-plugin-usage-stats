@@ -25,6 +25,17 @@ dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 - **过滤**：服务商、模型两个下拉（选项池来自最近一次无过滤扫描；选中服务商后模型列表随之收窄）。
 - **报表**：会话数 / 总 token / 未缓存输入 / 输出 / 缓存读（含命中率）/ 缓存写，随后仅一张按模型明细表。刻意**不做按天表**——看某一天用日期筛选直接框住那天即可；报表是纯 token 统计——费用在 v4 整个退出产品（价目层连 API 一并拆除），底部只标数据截至时间。数字刻度：不到 1K 写具体数，之后 `K`（≥1K，1 位小数）→ `M`（≥1M，2 位）→ `B`（≥100M，2 位），尾零去除。
 
+## 配置
+
+| key            | 说明                                                                                                            |
+| -------------- | --------------------------------------------------------------------------------------------------------------- |
+| `sessionsHome` | 会话根覆盖；留空 = 缺省（`$DSH_HOME/sessions` 或 `~/.dsh/sessions`）。在 profile patch 层改它可指向别的会话根。 |
+
+## 工具
+
+- `usageStats` Typert Remote（单只读方法 `overview({ from?, to?, model?, provider? })`）——日期 `YYYY-MM-DD`（本地时区，起止倒挂自动交换）；非法键直接丢弃、不做猜测。
+- 浏览器半是手写 `__ModuleLoader__` 工厂（`lib/client.js`，无构建链），自挂 remote descriptor 并注入 `settings.section` 页面。
+
 ## 口径
 
 - `inputTokens` = **未缓存输入**（`total = input + output + cacheRead + cacheWrite`，真实数据已核实）。

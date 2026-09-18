@@ -25,6 +25,17 @@ Then **restart that profile's host** (newly mounted packages are not hot-loaded)
 - **Filters**: provider and model dropdowns (options derived from the last unfiltered scan; picking a provider narrows the model list).
 - **Report**: sessions scanned, total tokens, uncached input / output / cache read (with hit rate) / cache write, then a single per-model table — deliberately **no per-day table**: the date-range filter already answers "what about this day" (set the range to that day). Deliberately lightweight: the report is pure token statistics — money left the product in v4 (the whole price/pricing layer was retired, API included); the footer is just a data-freshness timestamp. Number tiers: exact under 1K, then `K` (≥1K, one decimal), `M` (≥1M, two decimals), `B` (≥100M, two decimals) — trailing zeros trimmed.
 
+## Config
+
+| key            | Description                                                                                                                                               |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessionsHome` | Session root override; empty = default (`$DSH_HOME/sessions` or `~/.dsh/sessions`). Set it from the profile patch layer to point at another session root. |
+
+## Tools
+
+- `usageStats` Typert Remote with a single read-only method `overview({ from?, to?, model?, provider? })` — dates are `YYYY-MM-DD` (local zone, inverted pairs swapped); invalid keys are dropped, never guessed.
+- The browser half is a hand-written `__ModuleLoader__` factory (`lib/client.js`, no build chain) that self-mounts its remote descriptor and injects the `settings.section` page.
+
 ## Metrics
 
 - `inputTokens` = **uncached input** (`total = input + output + cacheRead + cacheWrite`, verified against real data).
