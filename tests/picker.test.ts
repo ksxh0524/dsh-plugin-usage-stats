@@ -330,9 +330,10 @@ test("RangePicker：今天标记与样式规格（40px 大格、18px/500 数字 
   assert.match(cellBy(rt, TODAY).props.className, /usg-today/);
   // 静态规格闸：字体/格径/类名/选中色迁移一旦回潮当场红
   // 居中铁律：flex 三件套（line-height 居中在大字号下会浮到格子上部——用户点名「字占上1/3」）
+  // 数字用 proportional（日格独立成盒不用等宽；tabular 的「1」advance 过宽致 today 圈里偏左——用户点名）
   assert.match(
     CLIENT,
-    /\.usg-pv\{(all:unset;box-sizing:border-box;)?display:flex;align-items:center;justify-content:center;height:40px;[^"]*font-size:18px;font-weight:500;font-variant-numeric:tabular-nums/,
+    /\.usg-pv\{(all:unset;box-sizing:border-box;)?display:flex;align-items:center;justify-content:center;height:40px;[^"]*font-size:18px;font-weight:500;font-variant-numeric:proportional-nums/,
     "日格必须 flex 真居中（line-height 居中在大字号下浮上去）",
   );
   assert.match(CLIENT, /\.usg-pv:disabled\{[^}]*cursor:default/, "未来日要真禁点：disabled 样式必须存在（不再是 aria-disabled 装饰）");
@@ -344,6 +345,10 @@ test("RangePicker：今天标记与样式规格（40px 大格、18px/500 数字 
   // 浅色主题黑底黑字选中即隐形，v3.1 真机踩实，两向都禁止回潮）
   assert.match(CLIENT, /\.usg-pv\.usg-sel[^{]*\{background:var\(--dsw-static-neutral-bluish-700\);color:var\(--dsw-static-neutral-bluish-00\)/);
   assert.doesNotMatch(CLIENT, /\.usg-pv[^{]*\{[^}]*background:var\(--dsw-(static-deepseek-\d+|alias-brand-primary)\)/);
+  // 形状统一圆（用户点名：端点圆 + 区间方块混用不行）：区间带与 today 圈都必须是 20px 正圆，
+  // 状态只靠颜色区分（深实心=选中两端，浅=中间，圈=今天）
+  assert.match(CLIENT, /\.usg-pv\.usg-band[^{]*\{[^}]*border-radius:20px/, "区间带须与端点同形（正圆），方块回潮即红");
+  assert.match(CLIENT, /\.usg-pv\.usg-today\{[^}]*border-radius:20px/, "today 圈须与端点同形（正圆），方块回潮即红");
   assert.match(CLIENT, /\.usg-wd\{/);
   assert.doesNotMatch(CLIENT, /\.usg-cal>span/);
   assert.doesNotMatch(CLIENT, /usg-(e|in)\b|usg-(mid|prev)\b/);
