@@ -62,10 +62,11 @@ The combined-total card lives on the Plugins page (next to the official cards): 
 - Plugin card (`plugins.item`): content always expanded — no collapse header, chevron, or `aria-expanded`. Toggling either switch writes immediately via `setConfig` (no draft / save / discard — both switches are reversible booleans, two rows only). A failed write rolls back to the confirmed value with an inline error + retry.
 - Master switch drives the tab: turning `familyEnabled` off unregisters the `settings.section` page, so the Settings left-nav entry disappears with it; turning it back on restores the page. Unreadable config fails open (the page stays).
 - Same rule inside the page: model/detail groups are static sections (`<h3>` + count subline), never collapsible.
+- The combined-total pill refreshes itself: subagent open/close, settled steps in the current session, and a 3s server-side poll (the only channel for tokens accrued inside subagent sessions) — the pill appears on its own and its numbers follow without a manual page refresh. Polling rides the incremental scan (unchanged files are only stat-checked) and pauses while the tab is hidden.
 
 ## Known limits
 
 - Incremental decoding relies on recognizing completed frames; a half-written tail frame folds on the next run, and legacy/dict frames degrade to full-file rescans (still correct, just slower).
-- Fetch on open and on manual refresh / filter change; there is no server push and no automatic polling.
+- Settings page: fetch on open and on manual refresh / filter change; there is no server push and no automatic polling (the combined-total pill's self-refresh is described above).
 - The browser side `$mount`s a hand-written strict descriptor; method/parameter names are an implicit contract shared with `src/cordis.ts` — renaming on one end must sync the other.
 - Providers that never report cache fields show the hit rate as "—", never a misleading 0%.

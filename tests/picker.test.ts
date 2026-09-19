@@ -429,3 +429,48 @@ test("合计面板定位与宿主同值：side top + gap 8 + 首帧隐藏测量"
   assert.match(CLIENT, /side: props\.side \|\| "bottom"/, "Anchored 须透传 side（月历保持默认朝下）");
   assert.match(CLIENT, /visibility: "hidden", left: 0, top: 0/, "首帧隐藏占位供测量（宿主 MEASURE_STYLE 同形，不闪错位）");
 });
+
+test("合计 pill 自动刷新：有标准席位走活路订阅后代计数，无席位退旧路（两路无数据都为 null 不炸）", () => {
+  const rt = mountPage();
+  const regs = (rt as any).regs as any[];
+  const dock = regs.find((r) => r.meta && r.meta.name === "conversation.composer.dock");
+  const h = (rt as any).react.createElement;
+  // 活路：订阅函数在渲染期被调用，返回的后代计数只认血缘（孙代在内、无关/环形在外）
+  const sessionsState = { byId: { main: { id: "main" }, child: { id: "child", parentId: "main" }, gc: { id: "gc", parentId: "child" } } };
+  let selFn: any = null;
+  let projKey: any = null;
+  const liveProps = {
+    familySessionId: "main",
+    familyTotal: async () => ({ ok: true, value: null }),
+    useSessions: (sel: any) => {
+      selFn = sel;
+      return sel(sessionsState);
+    },
+    useProjection: (key: any) => {
+      projKey = key;
+      return undefined;
+    },
+  };
+  assert.strictEqual(rt.mount(h(dock.comp, liveProps)), null, "无数据时 pill 应为 null（不占位）");
+  assert.equal(typeof selFn, "function", "活路必须订阅 useSessions（后代计数触发器）");
+  assert.equal(selFn(sessionsState), 2, "子代理后代计数不对（子 + 孙应为 2）");
+  assert.equal(selFn({ byId: {} }), 0, "空会话表应计 0");
+  assert.equal(selFn({ byId: { other: { id: "other" } } }), 0, "无关会话不得计入");
+  assert.equal(selFn({ byId: { a: { parentId: "b" }, b: { parentId: "a" } } }), 0, "环形血缘必须截断（不死循环、不误计数）");
+  assert.equal(projKey, "tokenUsage", "活路必须订阅本会话 tokenUsage 投影（主会话落步即跟）");
+  // 旧路：无标准席位（旧宿主/直挂）不断言订阅，只不断不炸
+  assert.strictEqual(rt.mount(h(dock.comp, { familySessionId: "main", familyTotal: async () => ({ ok: true, value: null }) })), null, "旧路无数据也应为 null");
+});
+
+test("合计 pill 自动刷新接线门：三路触发 + 在途守卫 + 等值去抖 + 开面板重拉（防退回一次性旧逻辑）", () => {
+  assert.match(CLIENT, /function FamilyPillLive\(props\)/, "自动刷新活路丢失（退回一次性旧逻辑：子代理开出来要手动刷新页）");
+  assert.match(CLIENT, /function FamilyPillOnce\(props\)/, "一次性旧路丢失（旧宿主/直挂无退路）");
+  assert.match(CLIENT, /function FamPillView\(props\)/, "视图未抽出共用（两路数据各渲一套必分叉）");
+  assert.match(CLIENT, /props\.useSessions\(function \(s\)/, "未订阅宿主会话表——子代理开出来 pill 不会自动出现");
+  assert.match(CLIENT, /props\.useProjection\("tokenUsage"\)/, "未订阅本会话 token 投影——主会话落步后数字不跟");
+  assert.match(CLIENT, /setInterval\(function \(\)/, "缺轮询兜底——子代理侧涨的 token 本会话收不到推送，只能轮询");
+  assert.match(CLIENT, /document\.hidden/, "轮询不避后台页签——hidden 时应跳过，不打扰后台");
+  assert.match(CLIENT, /busy\.current/, "缺在途守卫——轮询/抖动会叠请求");
+  assert.match(CLIENT, /famSig\(r\.value\)/, "缺值签名去抖——等值轮询结果会空转重渲染");
+  assert.match(CLIENT, /onRefresh: load/, "开面板重拉丢失——点开面板应刷新");
+});
