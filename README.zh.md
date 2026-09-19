@@ -2,13 +2,13 @@
 
 [English](./README.md)
 
-DSH Web GUI 的用量统计插件：**设置里的独立「Token 用量」页**——跨全部 workspace 的全局报表（与会话无关）：日期范围选择器、按模型与服务商过滤、KPI 网格与一张按模型明细表。严格只读，零埋点。单会话统计留在宿主聊天界面；宿主唯一给不出的数——本会话加按血缘递归的全部后代子代理会话——由输入框下方的**「全部」pill**补上。
+DSH Web GUI 的用量统计插件：**设置里的独立「Token 用量」页**——跨全部 workspace 的全局报表（与会话无关）：日期范围选择器、按模型与服务商过滤、KPI 网格与一张按模型明细表。严格只读，零埋点。单会话统计留在宿主聊天界面；宿主唯一给不出的数——本会话加按血缘递归的全部后代子代理会话——由输入框下方的**「合计」pill**补上。
 
 ## 工具与服务
 
 | 名称         | 形态    | 说明                                                                                          |
 | ------------ | ------- | --------------------------------------------------------------------------------------------- |
-| `usageStats` | Remote  | `overview(filter)` 全局汇总 + `familyTotal({sessionId})` 全部合计——两个都只读（见 Contract）  |
+| `usageStats` | Remote  | `overview(filter)` 全局汇总 + `familyTotal({sessionId})` 合计——两个都只读（见 Contract）      |
 | 增量扫描器   | Service | 字节级精确 zstd 帧 walker：只解压新完成的帧；状态落 `<DSH_HOME>/cache/usage-stats.folds.json` |
 | 墓碑账本     | Service | 已删会话的用量晋升墓碑继续计入（活文件重现则活数据权威，不 double count）                     |
 
@@ -46,7 +46,7 @@ pnpm check:browser             # 只在改浏览器半时跑
 
 ## Browser half
 
-`lib/client.js`（`./client` 子路径，手写 `__ModuleLoader__` 工厂，无构建链）：设置 section 页 + 输入框 pill。断言宿主同形而非像素（索引仓 `docs/settings-pages.md` §4.4、`docs/design-tokens.md` §4.3、`docs/runbooks/live-verify.md`）。
+`lib/client.js`（`./client` 子路径，手写 `__ModuleLoader__` 工厂，无构建链）：设置 section 页 + 输入框 pill。断言宿主同形而非像素（索引仓 `docs/settings-pages.md` §1、`docs/design-tokens.md` §1、`docs/runbooks/live-verify.md`）。
 
 | 席位认领与让位 | 现状                                                                                                           |
 | -------------- | -------------------------------------------------------------------------------------------------------------- |

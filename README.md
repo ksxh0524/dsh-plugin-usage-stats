@@ -2,7 +2,7 @@
 
 [中文](./README.zh.md)
 
-Usage-statistics plugin for the DSH Web GUI: a dedicated **Token 用量 page in Settings** — a global, session-independent report across all workspaces, with date-range picker, model/provider filters, a KPI grid and one per-model table. Strictly read-only, zero instrumentation. Per-session stats stay in the host chat UI; the one number the host cannot show — the session plus all descendant subagent sessions — arrives as a **Total pill under the composer**.
+Usage-statistics plugin for the DSH Web GUI: a dedicated **Token 用量 page in Settings** — a global, session-independent report across all workspaces, with date-range picker, model/provider filters, a KPI grid and one per-model table. Strictly read-only, zero instrumentation. Per-session stats stay in the host chat UI; the one number the host cannot show — the session plus all descendant subagent sessions — arrives as a **combined-total pill under the composer**.
 
 ## Tools & Services
 
@@ -46,7 +46,7 @@ pnpm check:browser             # browser-half changes only
 
 ## Browser half
 
-`lib/client.js` (`./client` subpath, hand-written `__ModuleLoader__` factory, no build chain): the settings section page plus the composer pill. Host-conformant shape, not pixels (index `docs/settings-pages.md` §4.4, `docs/design-tokens.md` §4.3, `docs/runbooks/live-verify.md`).
+`lib/client.js` (`./client` subpath, hand-written `__ModuleLoader__` factory, no build chain): the settings section page plus the composer pill. Host-conformant shape, not pixels (index `docs/settings-pages.md` §1, `docs/design-tokens.md` §1, `docs/runbooks/live-verify.md`).
 
 | Seat claim & yield | Status                                                                                                                                            |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
