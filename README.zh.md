@@ -55,7 +55,13 @@ pnpm check:browser             # 只在改浏览器半时跑
 | 认领席位       | `settings.section` 页（Token 用量，order 30）+ `conversation.composer.dock` pill（id `family-total`，order 1）+ `plugins.item` 配置卡（id `usage-stats`，order 110） |
 | 让位方案       | pill 只在有计费行为的主会话渲染（子代理 / 未知 / 空会话不渲染）；页是专用页，无争位                                                                                  |
 
-合计开关住在插件管理页的本插件卡里：`familyEnabled` 总开关（关掉则 pill 与合计数据一起停用）与 `dockVisible`（只隐藏对话框底下的 pill）。草稿 + 保存唯一写点，热落盘；两个默认全开。
+合计开关住在插件管理页的本插件卡里：`familyEnabled` 总开关（关掉则设置「Token 用量」页与输入框 pill 一起隐藏）与 `dockVisible`（只隐藏对话框底下的 pill）。拨动即保存，热落盘；两个默认全开。卡与页内分组一律常开不折叠。
+
+## 交互约定（用户拍板，偏离宿主默认）
+
+- 插件卡（`plugins.item`）：内容常开展示——无折叠头、chevron、`aria-expanded`。任一开关拨动即经 `setConfig` 直写（无草稿 / 保存 / 丢弃——两开关都是可逆布尔，内容只有两行）。写失败回滚到确认值，行内报错 + 重试。
+- 总开关连 Tab：`familyEnabled` 关闭即摘掉 `settings.section` 注册，设置左导航条目一起消失；打开即恢复。配置读不到时 fail-open（页保留）。
+- 页内同样：模型 / 明细分组是静态节（`<h3>` + 计数副行），不折叠。
 
 ## 已知边界
 

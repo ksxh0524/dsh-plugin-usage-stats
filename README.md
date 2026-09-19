@@ -55,7 +55,13 @@ pnpm check:browser             # browser-half changes only
 | Claimed seats      | `settings.section` page (Token 用量, order 30) + `conversation.composer.dock` pill (id `family-total`, order 1) + `plugins.item` config card (id `usage-stats`, order 110) |
 | Yield plan         | The pill renders only on main sessions with billed activity (hidden on subagent / unknown / empty sessions); the page is dedicated, no contention                          |
 
-The combined-total card lives on the Plugins page (next to the official cards): `familyEnabled` master switch (disables the pill and its data) and `dockVisible` (hides only the pill under the composer). Draft + save-only write point, persisted hot to settings; both default on.
+The combined-total card lives on the Plugins page (next to the official cards): `familyEnabled` master switch (off hides the Settings "Token 用量" page and the composer pill together) and `dockVisible` (hides only the pill under the composer). Toggle-to-save, persisted hot to settings; both default on. Card and in-page groups are always expanded (no folding).
+
+## Interaction contract (user-confirmed, deviates from host defaults)
+
+- Plugin card (`plugins.item`): content always expanded — no collapse header, chevron, or `aria-expanded`. Toggling either switch writes immediately via `setConfig` (no draft / save / discard — both switches are reversible booleans, two rows only). A failed write rolls back to the confirmed value with an inline error + retry.
+- Master switch drives the tab: turning `familyEnabled` off unregisters the `settings.section` page, so the Settings left-nav entry disappears with it; turning it back on restores the page. Unreadable config fails open (the page stays).
+- Same rule inside the page: model/detail groups are static sections (`<h3>` + count subline), never collapsible.
 
 ## Known limits
 

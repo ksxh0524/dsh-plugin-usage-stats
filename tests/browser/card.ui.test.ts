@@ -1,15 +1,15 @@
-/** card.ui.test.ts —— 插件卡 UI 自动化验证（索引仓 `docs/settings-cards.md` §1.1/§1.2 + live-verify 机器件，dsh-check 底座）：
- *  一次性实例真启、真浏览器载入，走「侧边栏插件面板 → usage-stats 卡 → 点开详情」全链 DOM 断言。
- *  卡形态 = 宿主 PluginConfigForm 同形四件套：① plugins.item 注册（data-plugin-item）
- *  ② 详情默认折叠（点开才有控件）③ 暂存草稿（拨开关不落盘，未保存标 + 丢弃回基线）
- *  ④ 保存唯一写点（成功后收起、重开回读新值；结束翻回默认开，不污染实例）。
+/** card.ui.test.ts —— 插件卡 UI 自动化验证（本包 README「交互约定」的用户拍板形态，dsh-check 底座）：
+ *  一次性实例真启、真浏览器载入，走「侧边栏插件面板 → usage-stats 卡 → 点进详情」全链 DOM 断言。
+ *  ① 点进详情内容直接可见（无二次折叠、无保存/丢弃按钮）② 拨动即写（无草稿：拨完等存完，
+ *  重载页重开回读必须是新值；结束翻回默认开，不污染实例）③ 总开关连 Tab（关掉后设置左导航
+ *  「Token 用量」条目即消失，打开即恢复；结束保持开）。
  *  跑法：pnpm check:browser。 */
 import { uiScenarioSuite } from "dsh-check";
 import { fileURLToPath } from "node:url";
 
 const pluginRoot = fileURLToPath(new URL("../../", import.meta.url));
 
-/** 打开侧边栏插件面板，返回本插件卡片行（点开详情后列表卸载，卡片行断言必须在点开之前做）。 */
+/** 打开侧边栏插件面板，返回本插件卡片行。 */
 async function openPluginsPanel(page: any) {
   const panelBtn = page.getByRole("button", { name: /^插件$/ }).first();
   await panelBtn.waitFor({ timeout: 20_000 });
@@ -19,7 +19,7 @@ async function openPluginsPanel(page: any) {
   return card;
 }
 
-/** 点开本插件详情（调用方已断完卡片行之后调；返回详情根）。 */
+/** 点进本插件详情（宿主 chrome；返回详情根——内容直接可见，不许再点折叠头）。 */
 async function openUsageDetail(card: any, page: any) {
   const openBtn = card.getByRole("button", { name: /Token 用量/ }).first();
   await openBtn.waitFor({ timeout: 15_000 });
@@ -29,70 +29,123 @@ async function openUsageDetail(card: any, page: any) {
   return detail;
 }
 
+/** 回插件列表（详情页左上「‹ 插件列表」）并等卡片行重现：详情卸载，
+ *  再点进即整卡重挂载 → getConfig 重读（reload 会撞宿主 API-Key 引导窗，禁 reload）。 */
+async function backToPluginList(page: any) {
+  await page.locator("a,button").filter({ hasText: "插件列表" }).first().click({ timeout: 10_000 });
+  const card = page.locator('li[data-plugin-item="usage-stats"]').first();
+  await card.waitFor({ state: "visible", timeout: 15_000 });
+  return card;
+}
 const dockSwitch = (detail: any) => detail.getByRole("switch", { name: "对话框底下显示" }).first();
-const familySwitch = (detail: any) => detail.getByRole("switch", { name: "合计统计" }).first();
+const masterSwitch = (detail: any) => detail.getByRole("switch", { name: "Token 用量统计" }).first();
+/** 存完判定：《保存中…》行内提示出现过并摘掉（写得快时可能没挂上过，直接看开关可用即算存完）。 */
+async function waitSaved(detail: any, sw: any) {
+  await detail
+    .getByText("保存中…")
+    .waitFor({ state: "detached", timeout: 15_000 })
+    .catch(() => {});
+  await sw.waitFor({ state: "visible", timeout: 15_000 });
+  if (await detail.getByText("保存失败").count()) throw new Error("保存失败行未消失（写盘报错，见行内文案）");
+}
+
+/** 打开设置弹窗（左导航含 Token 用量条目的那扇窗）。 */
+async function openSettings(page: any) {
+  const dialog = page.locator('[role="dialog"]').last();
+  if (await dialog.isVisible().catch(() => false)) return dialog;
+  await page.locator('[aria-label="设置"]').first().click({ timeout: 10_000 });
+  await dialog.waitFor({ state: "visible", timeout: 10_000 });
+  return dialog;
+}
 
 uiScenarioSuite({
   pluginRoot,
   scenarios: [
     {
-      name: "卡结构 = 宿主配置卡：plugins.item 注册 + 简介 + 默认折叠 + 点开两开关",
+      name: "详情常开：点进卡开关直接可见，无二次折叠、无保存/丢弃",
       async run({ page }) {
         const card = await openPluginsPanel(page);
-        await card.waitFor({ timeout: 10_000 });
         const cardText = await card.innerText();
-        if (!cardText.includes("全局用量页")) throw new Error(`summary 简介缺失：${JSON.stringify(cardText.slice(0, 120))}`);
+        if (!cardText.includes("拨动即保存")) throw new Error(`summary 简介不对：${JSON.stringify(cardText.slice(0, 120))}`);
         const detail = await openUsageDetail(card, page);
-        const root = detail.locator("li.usg-card").first();
-        await root.waitFor({ timeout: 10_000 });
-        const header = detail.getByRole("button", { name: /Token 用量/ }).first();
-        if ((await header.getAttribute("aria-expanded")) !== "false")
-          throw new Error("卡默认未折叠（aria-expanded ≠ false）——违索引仓 docs/settings-cards.md §1.1");
-        if (await detail.getByRole("switch").count()) throw new Error("折叠态就渲染了控件——平铺常开，多吃多占");
-        await header.click();
-        await header.waitFor({ state: "visible" });
-        if ((await header.getAttribute("aria-expanded")) !== "true") throw new Error("点开没生效（aria-expanded 未转 true）");
-        // 远端 getConfig 是异步读：等开关回填再断。
+        // 开关不经二次点击直接可见
         await dockSwitch(detail).waitFor({ state: "visible", timeout: 20_000 });
-        await familySwitch(detail).waitFor({ state: "visible", timeout: 20_000 });
-        if (!(await detail.locator(".usg-discard").first().isVisible())) throw new Error("footer 缺丢弃");
-        if (!(await detail.locator(".usg-save").first().isVisible())) throw new Error("footer 缺保存");
+        await masterSwitch(detail).waitFor({ state: "visible", timeout: 20_000 });
+        // 卡内无折叠头、无保存/丢弃按钮
+        if (await detail.locator("button.usg-cardHead").count()) throw new Error("卡头还是可点折叠按钮（详情应常开直出）");
+        if (await detail.getByRole("button", { name: /^(保存|丢弃)$/ }).count()) throw new Error("保存/丢弃按钮回潮（本卡拨动即写）");
       },
     },
     {
-      name: "暂存草稿：拨开关不落盘、未保存标出现、丢弃回基线；保存后收起并回读新值",
+      name: "拨动即写：拨开关直接落盘，重进详情回读新值（末尾翻回基线）",
       async run({ page }) {
         let detail = page.locator('[data-plugin-item-detail="usage-stats"]').first();
         if (!(await detail.count())) {
           detail = await openUsageDetail(await openPluginsPanel(page), page);
         }
-        const header = detail.getByRole("button", { name: /Token 用量/ }).first();
-        if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
         const sw = dockSwitch(detail);
         await sw.waitFor({ state: "visible", timeout: 20_000 });
         const baseline = await sw.getAttribute("aria-checked");
-        // ① 拨开关：只落草稿，未保存 Tag 挂上，保存从禁用转可用。
+        // ① 拨开关：不等保存按钮，直接等存完（回显的是服务端回执值）
         await sw.click();
-        await detail.locator(".usg-save:not([disabled])").first().waitFor({ state: "visible", timeout: 10_000 });
-        if (!(await detail.getByText("未保存", { exact: false }).first().count())) throw new Error("草稿态无未保存标记");
-        if (!(await detail.locator("span[data-tone][class*='usg-pending']").first().count()))
-          throw new Error("未保存标记走了替身路径——ui-primitives require 未命中");
-        // ② 丢弃：草稿回基线，未保存标记消失——全程没写过盘。
-        await detail.locator(".usg-discard").first().click();
-        if ((await sw.getAttribute("aria-checked")) !== baseline) throw new Error("丢弃未回基线");
-        if (await detail.getByText("未保存", { exact: false }).count()) throw new Error("丢弃后未保存标记未消失");
-        // ③ 唯一写点：再拨一次 → 保存 → 收起 → 重开走远端回读，值必须是新写的。
-        await sw.click();
-        await detail.locator(".usg-save").first().click();
-        await detail.locator("button.usg-cardHead[aria-expanded='false']").first().waitFor({ state: "visible", timeout: 15_000 });
-        await header.click();
+        await waitSaved(detail, sw);
+        const flipped = await sw.getAttribute("aria-checked");
+        if (flipped === baseline) throw new Error("拨动没翻值");
+        // ② 回列表再点进：整卡重挂载 → getConfig 重读必须是新值（草稿态退列表即丢，真落盘才留得住）
+        detail = await openUsageDetail(await backToPluginList(page), page);
+        const reread = await dockSwitch(detail)
+          .getAttribute("aria-checked")
+          .catch(async () => {
+            await dockSwitch(detail).waitFor({ state: "visible", timeout: 30_000 });
+            return dockSwitch(detail).getAttribute("aria-checked");
+          });
+        if (reread !== flipped) throw new Error("重进后回读失配：拨动没落盘");
+        // ③ 翻回基线再重进确认，不污染后继场景与实例
+        await dockSwitch(detail).click();
+        await waitSaved(detail, dockSwitch(detail));
+        detail = await openUsageDetail(await backToPluginList(page), page);
+        await dockSwitch(detail).waitFor({ state: "visible", timeout: 20_000 });
+        if ((await dockSwitch(detail).getAttribute("aria-checked")) !== baseline) throw new Error("翻回基线失败");
+      },
+    },
+    {
+      name: "总开关连 Tab：关掉左导航条目消失，打开恢复（末尾保持开）",
+      async run({ page }) {
+        let detail = page.locator('[data-plugin-item-detail="usage-stats"]').first();
+        if (!(await detail.count())) {
+          detail = await openUsageDetail(await openPluginsPanel(page), page);
+        }
+        const sw = masterSwitch(detail);
         await sw.waitFor({ state: "visible", timeout: 20_000 });
-        const value = await sw.getAttribute("aria-checked");
-        if (value === baseline) throw new Error("保存后重开回读失配：值没变");
-        // ④ 翻回基线，保持默认开（不污染后继场景与实例）。
+        if ((await sw.getAttribute("aria-checked")) !== "true") {
+          await sw.click();
+          await waitSaved(detail, sw);
+        }
+        // ① 关总开关
         await sw.click();
-        await detail.locator(".usg-save").first().click();
-        await detail.locator("button.usg-cardHead[aria-expanded='false']").first().waitFor({ state: "visible", timeout: 15_000 });
+        await waitSaved(detail, sw);
+        if ((await sw.getAttribute("aria-checked")) !== "false") throw new Error("总开关没关掉");
+        // ② 设置左导航条目必须消失
+        const dialog = await openSettings(page);
+        await dialog
+          .getByText("Token 用量", { exact: true })
+          .first()
+          .waitFor({ state: "detached", timeout: 15_000 })
+          .catch(() => {
+            throw new Error("关总开关后设置左导航 Tab 还在（应连 Tab 一起隐藏）");
+          });
+        // ③ 开回来（先关设置窗，免模态盖住侧边栏）
+        await page.keyboard.press("Escape");
+        detail = page.locator('[data-plugin-item-detail="usage-stats"]').first();
+        if (!(await detail.count())) {
+          detail = await openUsageDetail(await openPluginsPanel(page), page);
+        }
+        const sw2 = masterSwitch(detail);
+        await sw2.click();
+        await waitSaved(detail, sw2);
+        const dialog2 = await openSettings(page);
+        await dialog2.getByText("Token 用量", { exact: true }).first().waitFor({ state: "visible", timeout: 15_000 });
+        await page.keyboard.press("Escape");
       },
     },
   ],

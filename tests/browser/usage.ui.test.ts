@@ -1,7 +1,8 @@
-/** usage.ui.test.ts —— 分区页 UI 自动化验证（索引仓 `docs/settings-pages.md` §4.4 + 索引仓 `docs/runbooks/live-verify.md` 机器件，dsh-check 底座）：
+/** usage.ui.test.ts —— 分区页 UI 自动化验证（索引仓 `docs/settings-pages.md` §4.4 + 索引仓 `docs/runbooks/live-verify.md` 机器件，dsh-check 底座；
+ *  其中「页内分节常开不折叠」是本包 README「交互约定」的用户拍板，偏离宿主 inventory 折叠默认）：
  *  一次性实例真启、真浏览器载入，走「设置 → 左导航 Token 用量」全链 DOM 断言。
  *  断言的是**宿主同位形态**，不是像素：① 滚动只归壳（页根不自开 overflow/height/padding）
- *  ② 页 <h2> 标题 + 页内分节可折叠（组头 aria-expanded/aria-controls 真收得掉内容）
+ *  ② 页 <h2> 标题 + 页内分节常开（静态 <h3> 组标题 + 计数副行，内容直接可见、无折叠头）
  *  ③ 读视图三态挂 aria-busy、读数走 <dl>/<dt>/<dd>、表带 caption 与 th[scope]
  *  ④ 过滤下拉走宿主 primitives（portal 出页容器 + role=menu/menuitem + Enter/方向键/Escape 全链）
  *  且**无自铺全屏 mask**（v3 的 mask 会压在宿主左导航与关闭 X 之上）
@@ -35,7 +36,7 @@ uiScenarioSuite({
   pluginRoot,
   scenarios: [
     {
-      name: "页骨架 = 宿主 section 同形：滚动归壳 + h2 标题 + 分节折叠真收得起内容",
+      name: "页骨架 = 宿主 section 同形：滚动归壳 + h2 标题 + 分节常开直出内容",
       async run({ page }) {
         const { root } = await openSection(page);
         // ① 页根不自开滚动：宿主 .options 是唯一滚动位（自开 = 嵌套双滚动 + 滚动条 token 失效）
@@ -50,29 +51,16 @@ uiScenarioSuite({
         const h2 = page.locator("h2.usg-h2");
         if ((await h2.count()) !== 1) throw new Error("缺页级 <h2> 标题");
         if (!(await h2.first().innerText()).includes("Token 用量")) throw new Error("h2 标题文案不对");
-        // ③ 分节折叠：组头是 aria-expanded 的 button，收起后 aria-controls 指向的内容真从 DOM 摘掉
-        const toggle = root.locator(".usg-groupToggle").first();
+        // ③ 分节常开：静态 <h3> 组标题 + 计数副行，内容不经点击直接可见（本包用户拍板不折叠）
+        if (await root.locator(".usg-groupToggle").count()) throw new Error("组折叠头回潮（本包分节常开）");
+        const group = root.locator("section.usg-group").first();
         // 组随首轮 overview 落地才渲染：等它，不等就成了「查得太早 → 假红」
-        await toggle.waitFor({ state: "visible", timeout: 40_000 }).catch(() => {
-          throw new Error("页内无组级折叠头（整片常开 = 平铺占位）");
+        await group.waitFor({ state: "visible", timeout: 40_000 }).catch(() => {
+          throw new Error("页内无分组（数据回来也该有组+空态，不许静默白块）");
         });
-        const controls = await toggle.getAttribute("aria-controls");
-        if (!controls) throw new Error("折叠头缺 aria-controls");
-        if ((await toggle.getAttribute("aria-expanded")) !== "true") throw new Error("组默认应展开（宿主 inventory 同形：presetOpen ?? true）");
-        if (!(await toggle.innerText()).trim()) throw new Error("折叠头无可见标题文案");
-        await page
-          .locator("#" + controls)
-          .first()
-          .waitFor({ state: "visible", timeout: 10_000 });
-        await toggle.click();
-        await toggle.waitFor({ state: "visible" });
-        if ((await toggle.getAttribute("aria-expanded")) !== "false") throw new Error("点击未折叠");
-        if (await page.locator("#" + controls).count()) throw new Error("折叠后内容仍在 DOM（aria-expanded 只是装饰）");
-        await toggle.click();
-        await page
-          .locator("#" + controls)
-          .first()
-          .waitFor({ state: "visible", timeout: 10_000 });
+        const h3 = group.locator("h3.usg-groupTitle").first();
+        if (!(await h3.count())) throw new Error("组标题不是静态 <h3>（应去折叠 button，留标题层级）");
+        if (!(await h3.innerText()).trim()) throw new Error("组标题无可见文案");
       },
     },
     {
@@ -84,7 +72,7 @@ uiScenarioSuite({
         if (!(await root.getAttribute("aria-busy"))) throw new Error("页根缺 aria-busy（加载态对 AT 不可见）");
         if ((await page.locator("dl.usg-kpis > div > dt").count()) < 4) throw new Error("KPI 不是 <dl>/<dt>/<dd> 结构（裸 <b>+<span> 读数无标签）");
         if ((await page.locator("dl.usg-kpis > div > dd").count()) < 4) throw new Error("KPI 缺 <dd> 数值");
-        if (await page.locator(".usg-groupToggle b, .usg-group b").count()) throw new Error("组标题用了 <b>（改折叠头 + <h3>）");
+        if (await page.locator(".usg-group b").count()) throw new Error("组标题用了 <b>（应静态 <h3>）");
         // 组内两条正路：有行出表（caption + th[scope] 齐），无行出空态文案——都不许静默一块白
         if ((await page.locator("table.usg-table").count()) === 0) {
           if ((await page.locator(".usg-group p.usg-status").count()) === 0) throw new Error("明细组既无表也无空态文案（静默白块）");
@@ -115,8 +103,9 @@ uiScenarioSuite({
         if ((await roleNow()) !== "menuitem") throw new Error("菜单项不是可聚焦真按钮");
         await page.keyboard.press("ArrowDown");
         if ((await roleNow()) !== "menuitem") throw new Error("焦点在项内时方向键丢失菜单项");
-        // 层阶终极实证：浮层开着时点宿主左导航同级条目必须一点就中（v3 的自铺 mask 要点两下）
-        await dialog.getByText("插件", { exact: true }).first().click({ timeout: 5_000 });
+        // 层阶终极实证：浮层开着时点宿主左导航同级条目必须一点就中（v3 的自铺 mask 要点两下；
+        // 宿主该条目叫「内置插件」，exact「插件」点不到——文案跟宿主走，改了同步改）。
+        await dialog.getByText("内置插件", { exact: true }).first().click({ timeout: 5_000 });
         if (await page.locator(".usg-root").count()) throw new Error("浮层挡着宿主 chrome：左导航点不动（mask 或 z 序自造档）");
         if (await page.locator("[data-slot-error]").count()) throw new Error("切页后冒出崩脸件");
         // 回本页用键盘再开一次：触发器是 button，Enter 即开
