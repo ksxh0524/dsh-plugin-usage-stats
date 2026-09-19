@@ -1,4 +1,4 @@
-/** usage.ui.test.ts —— 分区页 UI 自动化验证（STANDARDS §4.4 + §5 机器件，dsh-check 底座）：
+/** usage.ui.test.ts —— 分区页 UI 自动化验证（索引仓 `docs/settings-pages.md` §4.4 + 索引仓 `docs/runbooks/live-verify.md` 机器件，dsh-check 底座）：
  *  一次性实例真启、真浏览器载入，走「设置 → 左导航 Token 用量」全链 DOM 断言。
  *  断言的是**宿主同位形态**，不是像素：① 滚动只归壳（页根不自开 overflow/height/padding）
  *  ② 页 <h2> 标题 + 页内分节可折叠（组头 aria-expanded/aria-controls 真收得掉内容）
@@ -40,7 +40,8 @@ uiScenarioSuite({
         const { root } = await openSection(page);
         // ① 页根不自开滚动：宿主 .options 是唯一滚动位（自开 = 嵌套双滚动 + 滚动条 token 失效）
         const overflowY = await styleOf(page, ".usg-root", "overflowY");
-        if (overflowY === "auto" || overflowY === "scroll") throw new Error(`页根自开滚动（overflow-y=${overflowY}）——违 §4.4 滚动归壳`);
+        if (overflowY === "auto" || overflowY === "scroll")
+          throw new Error(`页根自开滚动（overflow-y=${overflowY}）——违索引仓 docs/settings-pages.md §4.4 滚动归壳`);
         const padL = await styleOf(page, ".usg-root", "paddingLeft");
         if (padL !== "0px") throw new Error(`页根自带 padding（${padL}）——页边距归宿主壳，插件再加一层即文字不对齐`);
         const maxW = await styleOf(page, ".usg-root", "maxWidth");

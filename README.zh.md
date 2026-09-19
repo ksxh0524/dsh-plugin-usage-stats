@@ -4,7 +4,7 @@
 
 DSH（DeepSeek Harness）Web GUI 的用量统计插件：**设置里的独立「Token 用量」页**——跨全部 workspace 的全局报表（与会话无关）：日期范围选择器（默认今天；预设 今天 / 近3天 / 近7天 / 近30天；底部「清除」= 全部时间）、**按模型与服务商过滤**、KPI 网格与一张按模型明细表。严格只读，零埋点。
 
-页面形态照宿主自己的 section 页规矩来（STANDARDS §4.4）：滚动归宿主壳（页根不写 `overflow`/`height`/根 padding）、页宽落宿主档位（760px）、页级 `<h2>` 顶标题而明细表放进可折叠的页内分组、读视图三态齐（`aria-busy`、`role="alert"`+重试、空态文案）、读数用 `<dl>/<dt>/<dd>`、过滤下拉用宿主 `Menu` 件（portal + 外点 + Escape + 方向键），不再手搓带全屏 mask 的浮层。宿主唯一没有的件是日期月历：本体自绘，但坐在宿主锚定/关闭 hook 的骨架上，日格是真按钮。
+页面形态照宿主自己的 section 页规矩来（索引仓 `docs/settings-pages.md` §4.4）：滚动归宿主壳（页根不写 `overflow`/`height`/根 padding）、页宽落宿主档位（760px）、页级 `<h2>` 顶标题而明细表放进可折叠的页内分组、读视图三态齐（`aria-busy`、`role="alert"`+重试、空态文案）、读数用 `<dl>/<dt>/<dd>`、过滤下拉用宿主 `Menu` 件（portal + 外点 + Escape + 方向键），不再手搓带全屏 mask 的浮层。宿主唯一没有的件是日期月历：本体自绘，但坐在宿主锚定/关闭 hook 的骨架上，日格是真按钮。
 
 单会话统计（轮/步、tok/s、缓存命中、逐条消息用量）**宿主聊天界面自带**——本插件刻意不重复造；v2 的右侧栏 tab 与下钻接口因此删除。
 
@@ -55,7 +55,7 @@ dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 node --test tests/*.test.ts
 ```
 
-fixture 口径测试（折叠、重试取末条、维度过滤、会话画像计数、store 版本门）、用真 `zstd` CLI 产物对表的帧边界测试（无 CLI 自动 skip）、跨帧半行场景的「增量 === 全量重放」性质测试、持久化 store 重启复用测试，另有真实会话目录集成测试（无会话目录自动 skip）。`tests/picker.test.ts` 用同步 mini-React harness 真渲浏览器半（react / react-dom / 宿主 primitives 都给桩），既守月历逐格独立绑定，也断言现稿仍过工作区的 §4.4 结构门与 §4.3 动效门。
+fixture 口径测试（折叠、重试取末条、维度过滤、会话画像计数、store 版本门）、用真 `zstd` CLI 产物对表的帧边界测试（无 CLI 自动 skip）、跨帧半行场景的「增量 === 全量重放」性质测试、持久化 store 重启复用测试，另有真实会话目录集成测试（无会话目录自动 skip）。`tests/picker.test.ts` 用同步 mini-React harness 真渲浏览器半（react / react-dom / 宿主 primitives 都给桩），既守月历逐格独立绑定，也断言现稿仍过工作区的索引仓 `docs/settings-pages.md` §4.4 结构门与索引仓 `docs/design-tokens.md` §4.3 动效门。
 
 ## 已知边界（v0.4）
 
@@ -70,4 +70,4 @@ fixture 口径测试（折叠、重试取末条、维度过滤、会话画像计
 页根不自开滚动也不自带 padding、页有 `<h2>`、页内分组真折叠（`aria-expanded` + `aria-controls`，收起后内容从 DOM 摘掉）、
 KPI 是 `<dl>/<dt>/<dd>` 且表带 `caption`/`th[scope]`、过滤下拉经 portal 逃出页容器且可 `role=menu`/`role=menuitem`
 键盘导航、无自铺 mask（浮层开着时宿主 chrome 仍一点就中）、月历日格是真按钮且未来日原生 `disabled`。
-浏览器半改动必须过它（STANDARDS §4.4 + §5，dsh-check 第 12 门）。
+浏览器半改动必须过它（索引仓 `docs/settings-pages.md` §4.4 + 索引仓 `docs/runbooks/live-verify.md`，dsh-check 第 12 门）。

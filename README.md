@@ -4,7 +4,7 @@
 
 A usage-statistics plugin for the DSH (DeepSeek Harness) Web GUI: a **dedicated "Token 用量" page in Settings** — a global, session-independent report across all workspaces, with a date-range picker (defaults to today; presets 今天 / 近3天 / 近7天 / 近30天; footer "清除" = all time), **model and provider filters**, a KPI grid and one per-model table. Strictly read-only, zero instrumentation.
 
-The page follows the host's own section-page grammar (STANDARDS §4.4): scrolling stays with the host shell (the page root owns no `overflow`/`height`/root padding), width sits on the host tier (760px), a real `<h2>` heads the page while detail tables live in foldable in-page groups, the three read states are wired (`aria-busy`, `role="alert"` + retry, an empty-state line), facts are read out as `<dl>/<dt>/<dd>`, and the filter dropdown is the host `Menu` primitive (portal + outside-pointer + Escape + arrow keys) rather than a hand-rolled popover with a full-screen mask. The date calendar is the one thing the host has no component for: it stays self-drawn but sits on the host's anchoring/dismiss hooks, and its day cells are real buttons.
+The page follows the host's own section-page grammar (index `docs/settings-pages.md` §4.4): scrolling stays with the host shell (the page root owns no `overflow`/`height`/root padding), width sits on the host tier (760px), a real `<h2>` heads the page while detail tables live in foldable in-page groups, the three read states are wired (`aria-busy`, `role="alert"` + retry, an empty-state line), facts are read out as `<dl>/<dt>/<dd>`, and the filter dropdown is the host `Menu` primitive (portal + outside-pointer + Escape + arrow keys) rather than a hand-rolled popover with a full-screen mask. The date calendar is the one thing the host has no component for: it stays self-drawn but sits on the host's anchoring/dismiss hooks, and its day cells are real buttons.
 
 Per-session stats (turns/steps, tok/s, cache hit, per-message usage) are **built into the host chat UI** — this plugin deliberately does not duplicate them; v2's sidebar tab and drill-down endpoints were removed for that reason.
 
@@ -55,7 +55,7 @@ When mounted into a host profile via pnpm `link:` (a symlink), source edits need
 node --test tests/*.test.ts
 ```
 
-Fixture metric tests (folding, retry replacement, filters, session-profile counts, store version gate), byte-accurate frame-walker tests against real `zstd` CLI output (skipped without the CLI), an incremental-equals-full-replay property test with lines deliberately split across frame boundaries, a persistent-store restart test, plus integration tests against the real session directory (auto-skipped when none exists). `tests/picker.test.ts` renders the browser half in a synchronous mini-React harness (stubbing react / react-dom / the host primitives) to keep the calendar's per-cell bindings honest and to assert the page still passes the workspace's §4.4 structure and §4.3 motion gates.
+Fixture metric tests (folding, retry replacement, filters, session-profile counts, store version gate), byte-accurate frame-walker tests against real `zstd` CLI output (skipped without the CLI), an incremental-equals-full-replay property test with lines deliberately split across frame boundaries, a persistent-store restart test, plus integration tests against the real session directory (auto-skipped when none exists). `tests/picker.test.ts` renders the browser half in a synchronous mini-React harness (stubbing react / react-dom / the host primitives) to keep the calendar's per-cell bindings honest and to assert the page still passes the workspace's index `docs/settings-pages.md` §4.4 structure and index `docs/design-tokens.md` §4.3 motion gates.
 
 ## Known limits (v0.4)
 
@@ -74,4 +74,4 @@ for real (`aria-expanded` + `aria-controls`, content removed from the DOM), KPIs
 page container through a portal with `role=menu`/`role=menuitem` keyboard navigation and
 no self-made mask (host chrome stays one-click reachable while it is open), and the
 calendar's day cells are real buttons with future days natively `disabled`.
-Browser-half changes must pass it (STANDARDS §4.4 + §5, dsh-check gate 12).
+Browser-half changes must pass it (index `docs/settings-pages.md` §4.4 + index `docs/runbooks/live-verify.md`, dsh-check gate 12).
