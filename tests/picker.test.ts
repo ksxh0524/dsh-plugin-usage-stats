@@ -426,3 +426,8 @@ test("精确数挂 hover：KPI 与模型行须带 fmtFull 精确 title（紧凑�
   assert.match(CLIENT, /\{ v: fmt\(m\.cacheRead\), t: fmtFull\(m\.cacheRead\) \}/, "模型行缓存读格必须挂精确 title");
   assert.match(CLIENT, /title: fmtFull\(m\.total\) \+ " tok"/, "合计面板模型行必须挂精确 title");
 });
+
+test("命中率与宿主同算法：整数档 + 近满保真（防退回 naive 四舍五入）", () => {
+  assert.match(CLIENT, /function roundedHitUnits\(read, denom\)/, "命中率必须走宿主整数档算法");
+  assert.match(CLIENT, /fmtHit\(t\.cacheRead, t\.input \+ t\.cacheRead \+ t\.cacheWrite\)/, "分母须含缓存写（宿主 billedInput 口径）");
+});
