@@ -8,10 +8,12 @@ DSH（DeepSeek Harness）Web GUI 的用量统计插件：**设置里的独立「
 
 单会话统计（轮/步、tok/s、缓存命中、逐条消息用量）**宿主聊天界面自带**——本插件刻意不重复造；v2 的右侧栏 tab 与下钻接口因此删除。
 
+宿主唯一给不出的数是**全家桶**：本会话 + 按血缘递归的全部后代子代理会话（子用量只记在子自己的会话里，进不了父日志）。本插件在输入框下方多挂一个**「全家」pill**（与宿主统计并排，`conversation.composer.dock` order 1）：只在有计费行为的主会话渲染（子代理会话、未知会话、空会话不渲染），点开展开内联面板——总数一行 + 按 `provider/model` 拆行。显隐由设置页顶部的开关控制（浏览器侧 localStorage 偏好，默认开，不是服务端 config）。
+
 - 数据源：`<DSH_HOME>/sessions/*/*/session.v3.jsonl.zstd`——**跨全部 workspace 的全局视图**，含子代理会话。
 - 增量设计：会话文件是追加式多帧 zstd。字节级精确的帧 walker（RFC 8878 帧头/块头，不碰 LZ4）让扫描器按文件持久化折叠状态，后续只解压**新完成的帧**，未变文件零解压开销。状态落 `<DSH_HOME>/cache/usage-stats.folds.json`（tmp+rename 原子写；状态损坏或缺失自动整文件重扫）。
 - 删除保留：会话文件删了，已扫用量不陪葬——facts 按 sessionId 晋升墓碑（同 cache 文件的 `tombs` 段）继续计入总览；同 session 的活文件重现则活数据权威、墓碑让位（不 double count）。清账唯一路径 = 删 cache 文件。
-- 形态：服务端注册 `usageStats` Typert Remote（**单只读方法 `overview(filter)`**）；浏览器半是手写 `__ModuleLoader__` 工厂（`lib/client.js`，无构建链），自挂 remote descriptor 并注入 `settings.section` 页面。
+- 形态：服务端注册 `usageStats` Typert Remote（**两个只读方法 `overview(filter)` + `familyTotal({ sessionId })`**）；浏览器半是手写 `__ModuleLoader__` 工厂（`lib/client.js`，无构建链），自挂 remote descriptor 并注入 `settings.section` 页面与输入框下 `family-total` pill。
 
 ## 安装
 
@@ -33,7 +35,9 @@ dsh plugin --profile <your-profile> add dsh-plugin-usage-stats
 
 ## 工具
 
-- `usageStats` Typert Remote（单只读方法 `overview({ from?, to?, model?, provider? })`）——日期 `YYYY-MM-DD`（本地时区，起止倒挂自动交换）；非法键直接丢弃、不做猜测。
+- `usageStats` Typert Remote（两个只读方法）：
+  - `overview({ from?, to?, model?, provider? })`——日期 `YYYY-MM-DD`（本地时区，起止倒挂自动交换）；非法键直接丢弃、不做猜测。
+  - `familyTotal({ sessionId })`——本会话 + 递归全部后代子代理（全时段全模型）：`{ known, isSubagent, sessionCount, totals, hitRate, byModel }`。未知 id 回 `known:false`；子代理会话回 `isSubagent:true`（调用方不渲染）；已删子会话由墓碑账本继续计入。只计数、不列逐会话明细。
 - 浏览器半是手写 `__ModuleLoader__` 工厂（`lib/client.js`，无构建链），自挂 remote descriptor 并注入 `settings.section` 页面。
 
 ## 口径

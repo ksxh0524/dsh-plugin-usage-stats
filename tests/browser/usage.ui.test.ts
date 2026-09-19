@@ -170,5 +170,26 @@ uiScenarioSuite({
         if ((await page.locator(".usg-root").count()) === 0) throw new Error("Escape 冒泡把设置窗一起关了（应只关浮层）");
       },
     },
+    {
+      name: "全家开关行：role=switch 可开合（dock pill 显隐偏好，默认开）",
+      async run({ page }) {
+        const { root } = await openSection(page);
+        const sw = root.getByRole("switch", { name: "会话底部全家用量开关" });
+        await sw.waitFor({ state: "visible", timeout: 25_000 });
+        const before = await sw.getAttribute("aria-checked");
+        await sw.click();
+        let flipped = false;
+        for (let i = 0; i < 40; i++) {
+          if ((await sw.getAttribute("aria-checked")) !== before) {
+            flipped = true;
+            break;
+          }
+          await page.waitForTimeout(200);
+        }
+        if (!flipped) throw new Error("开关点击后 aria-checked 未翻转");
+        // 翻回来，保持默认开（不污染后继场景与用户本地偏好）
+        await sw.click();
+      },
+    },
   ],
 });

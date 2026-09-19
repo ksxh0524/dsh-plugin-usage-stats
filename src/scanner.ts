@@ -7,7 +7,7 @@
  *  - 每条 assistant/message.data.usage 归入 scope `<sessionId>:<turn>:<step>`（turn/step 由最近
  *    turn/start / step/start 记录维护）；同 scope 出现新样本即替换旧样本 = 重试取末条（与 token-meter 同规则）。
  *  - inputTokens 为「未缓存输入」（total = input + output + cacheRead [+ cacheWrite] 已在真实数据核实）。
- *  - session 行补 cwd/createdAt/delegationDepth/origin；session/title 行补标题。
+ *  - session 行补 cwd/createdAt/delegationDepth/origin/parentSession；session/title 行补标题。
  *
  *  增量解码（会话文件是追加式多帧 zstd，每次全量重解是浪费）：
  *  - `frameSpans` 按 RFC 8878 解析帧头与块头（块体按 24bit Block_Size 直接跳过，不碰 LZ4），
@@ -63,6 +63,8 @@ export interface SessionMeta {
   delegationDepth: number;
   /** 子代理会话（origin/parentSession/delegationDepth>0 任一命中）。 */
   subagent: boolean;
+  /** 直接父会话 id（session 行的 parentSession；主会话为 null）。全家桶聚合的血缘边。 */
+  parentId: string | null;
   /** 会话级计数（逐行顺带 O(1)，不做去重）：user/message 行数。 */
   userMessages: number;
   /** assistant/message 行数（无 usage 样本的也计）。 */
@@ -137,13 +139,15 @@ export function foldChunk(s: FoldState, text: string): void {
       s.curTurn = -1;
       s.curStep = -1;
       const depth = Number(r.delegationDepth) || 0;
+      const parentId = typeof r.parentSession === "string" && r.parentSession ? String(r.parentSession) : null;
       s.meta = {
         sessionId: String(r.id || s.sessionIdHint),
         cwd: String(r.cwd || ""),
         title: "",
         createdAt: Number(r.createdAt) || 0,
         delegationDepth: depth,
-        subagent: r.origin != null || r.parentSession != null || depth > 0,
+        subagent: r.origin != null || parentId != null || depth > 0,
+        parentId,
         userMessages: 0,
         assistantMessages: 0,
         toolCalls: 0,

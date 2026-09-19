@@ -8,10 +8,12 @@ The page follows the host's own section-page grammar (index `docs/settings-pages
 
 Per-session stats (turns/steps, tok/s, cache hit, per-message usage) are **built into the host chat UI** — this plugin deliberately does not duplicate them; v2's sidebar tab and drill-down endpoints were removed for that reason.
 
+The one number the host cannot show is the **family total**: the current session plus all of its descendant subagent sessions (child usage stays in the child's own session, out of the parent log). This plugin adds a **"Family" pill under the composer** (next to the host stats, `conversation.composer.dock` order 1): it renders only on main sessions with billed activity (hidden on subagent sessions, unknown sessions, and empty sessions) and opens an inline panel with the grand total plus a per-`provider/model` breakdown. Visibility is controlled by a switch at the top of this settings page (a browser-side preference in localStorage, default on — not a server config).
+
 - Data source: `<DSH_HOME>/sessions/*/*/session.v3.jsonl.zstd` — a **global view across all workspaces**, including subagent sessions.
 - Incremental by design: session files are appended multi-frame zstd streams. A byte-accurate zstd frame walker (RFC 8878 headers, no LZ4 decoding) lets the scanner persist fold state per file and, on later runs, decompress **only newly completed frames**; unchanged files cost zero I/O. Persistent state lives in `<DSH_HOME>/cache/usage-stats.folds.json` (atomic tmp+rename; corrupt or missing state falls back to a full rescan).
 - Retention ledger: deleting a session file no longer deletes its history — already-scanned facts are promoted to a per-session tombstone (the `tombs` section of the same cache file) and stay in the totals; if a live file with the same session reappears, live data wins and the tombstone steps aside (no double counting). The only reset is deleting the cache file.
-- Shape: the server side registers a `usageStats` Typert Remote with a **single read-only method `overview(filter)`**; the browser half is a hand-written `__ModuleLoader__` factory (`lib/client.js`, no build chain) that self-mounts its remote descriptor and injects a `settings.section` entry.
+- Shape: the server side registers a `usageStats` Typert Remote with **two read-only methods — `overview(filter)` and `familyTotal({ sessionId })`**; the browser half is a hand-written `__ModuleLoader__` factory (`lib/client.js`, no build chain) that self-mounts its remote descriptors and injects a `settings.section` entry plus the composer `family-total` pill.
 
 ## Install
 
@@ -33,7 +35,9 @@ Then **restart that profile's host** (newly mounted packages are not hot-loaded)
 
 ## Tools
 
-- `usageStats` Typert Remote with a single read-only method `overview({ from?, to?, model?, provider? })` — dates are `YYYY-MM-DD` (local zone, inverted pairs swapped); invalid keys are dropped, never guessed.
+- `usageStats` Typert Remote with two read-only methods:
+  - `overview({ from?, to?, model?, provider? })` — dates are `YYYY-MM-DD` (local zone, inverted pairs swapped); invalid keys are dropped, never guessed.
+  - `familyTotal({ sessionId })` — the session plus all recursively-descendant subagent sessions (all time, all models): `{ known, isSubagent, sessionCount, totals, hitRate, byModel }`. Unknown ids return `known: false`; subagent sessions return `isSubagent: true` (callers hide the pill); deleted child sessions stay counted via the tombstone ledger. Counts only — no per-session breakdown.
 - The browser half is a hand-written `__ModuleLoader__` factory (`lib/client.js`, no build chain) that self-mounts its remote descriptor and injects the `settings.section` page.
 
 ## Metrics

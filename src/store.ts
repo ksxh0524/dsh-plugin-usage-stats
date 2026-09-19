@@ -19,7 +19,7 @@ import { dirname, join } from "node:path";
 import { foldFrom, frameWatermark, hintOf, readFold, reviveState, type Fold, type FoldState } from "./scanner.ts";
 
 /** 存量格式+折叠语义的联合版本：与磁盘 payload.version 不符 = 冷启动全量重扫。 */
-export const VERSION = 4;
+export const VERSION = 5; // v5: SessionMeta 新增 parentId（全家桶血缘边），旧快照整体作废重扫一次
 
 export interface UnitRow {
   file: string;

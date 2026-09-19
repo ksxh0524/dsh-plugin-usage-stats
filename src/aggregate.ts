@@ -1,5 +1,6 @@
 /** 聚合层：增量扫描调度（状态经 store.ts 持久化）+ 全局总计（四路 token / 命中率 / byModel），
- *  overview 支持 model/provider 过滤（fact 层先过滤再聚合，与时间过滤同构）。
+ *  overview 支持 model/provider 过滤（fact 层先过滤再聚合，与时间过滤同构）；
+ *  familyTotal 做单会话全家桶（本会话 + parentId 血缘递归后代，全时段全模型，只计数不列明细）。
  *  所有导出结构保持 JSON-safe，直接作为 Remote 返回值。宿主自带会话统计（轮/步/tok·s/缓存），
  *  本包只做全局视角；v4 起 UI 不再展示消息数/按天/费用，对应 API 字段同步移除（不留死契约）。
  *  删除保留：总览输入 = 活文件 folds + 墓碑 folds（已删会话的最后已知用量）；scannedFiles
@@ -142,6 +143,72 @@ export interface ModelRow extends Totals {
   model: string;
   key: string;
   hitRate: number | null;
+}
+
+export interface FamilyTotal {
+  /** 被查会话 id（归一化后原样回显）。 */
+  sessionId: string;
+  /** 是否在存量里见过该会话（活文件或墓碑）；未知会话 = dock pill 不渲染。 */
+  known: boolean;
+  /** 被查会话本身是否为子代理；true = dock pill 不渲染（只在主会话下显示）。 */
+  isSubagent: boolean;
+  /** 纳入聚合的会话数（含自己；未知为 0）。只计数，不列明细。 */
+  sessionCount: number;
+  totals: Totals;
+  hitRate: number | null;
+  byModel: ModelRow[];
+  generatedAt: number;
+}
+
+export function emptyFamilyTotal(sessionId: string): FamilyTotal {
+  return { sessionId, known: false, isSubagent: false, sessionCount: 0, totals: emptyTotals(), hitRate: null, byModel: [], generatedAt: Date.now() };
+}
+
+/** 全家桶聚合：被查会话 + 按 parentId 血缘递归到的全部后代（visited 防环）。
+ *  口径 = 全时段全模型（无日期/维度过滤），facts 沿用行内 scope 末条语义；
+ *  活文件权威，墓碑只补活文件缺席的会话（已删子会话的用量不陪葬）。
+ *  只返回计数与按模型拆行，不返回逐会话明细。 */
+export function buildFamilyTotal(folds: Fold[], sessionId: string, tombs: Fold[] = []): FamilyTotal {
+  const metaById = new Map<string, NonNullable<Fold["meta"]>>();
+  for (const fold of folds) if (fold.meta && !metaById.has(fold.meta.sessionId)) metaById.set(fold.meta.sessionId, fold.meta);
+  for (const tomb of tombs) if (tomb.meta && !metaById.has(tomb.meta.sessionId)) metaById.set(tomb.meta.sessionId, tomb.meta);
+  const self = metaById.get(sessionId);
+  if (!self) return emptyFamilyTotal(sessionId);
+  const children = new Map<string, string[]>();
+  for (const meta of metaById.values()) {
+    if (!meta.parentId) continue;
+    const g = children.get(meta.parentId);
+    if (g) g.push(meta.sessionId);
+    else children.set(meta.parentId, [meta.sessionId]);
+  }
+  const included = new Set<string>([sessionId]);
+  const stack = [sessionId];
+  while (stack.length) {
+    const cur = stack.pop() as string;
+    for (const child of children.get(cur) || []) {
+      if (included.has(child)) continue;
+      included.add(child);
+      stack.push(child);
+    }
+  }
+  const liveIds = new Set<string>();
+  for (const fold of folds) if (fold.meta) liveIds.add(fold.meta.sessionId);
+  const totals = emptyTotals();
+  const modelRows = new Map<string, ModelRow>();
+  const take = (f: UsageFact): void => {
+    add(totals, f);
+    const key = `${f.provider}/${f.model}`;
+    let m = modelRows.get(key);
+    if (!m) {
+      m = { ...emptyTotals(), provider: f.provider, model: f.model, key, hitRate: null };
+      modelRows.set(key, m);
+    }
+    add(m, f);
+  };
+  for (const fold of folds) for (const f of fold.facts) if (included.has(f.sessionId)) take(f);
+  for (const tomb of tombs) for (const f of tomb.facts) if (included.has(f.sessionId) && !liveIds.has(f.sessionId)) take(f);
+  const byModel = [...modelRows.values()].map((m) => ({ ...m, hitRate: hitRate(m) })).sort((a, b) => b.total - a.total);
+  return { sessionId, known: true, isSubagent: self.subagent, sessionCount: included.size, totals, hitRate: hitRate(totals), byModel, generatedAt: Date.now() };
 }
 
 export interface Overview {

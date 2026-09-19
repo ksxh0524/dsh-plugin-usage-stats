@@ -1,5 +1,5 @@
-/** Cordis 入口：注册 `usageStats` 服务（Typert Gateway 只读 Remote：overview 单方法）。
- *  会话级视图宿主自带（底部计数条 + 会话统计对话框），本包只做全局汇总——不预留下钻接口。
+/** Cordis 入口：注册 `usageStats` 服务（Typert Gateway 只读 Remote：overview 全局汇总 + familyTotal 全家桶）。
+ *  会话级视图宿主自带（底部计数条 + 会话统计对话框），本包只做全局汇总与全家桶——不预留下钻接口。
  *
  * 设计约束（勿改成 import 官方包）：
  * - 本包运行在宿主 node 进程里，但被 pnpm 链接在文件目录下，若 import
@@ -16,7 +16,7 @@
  *   实测（dsh-api-gateway methodParameterNames + Node type-strip 行为）：`: unknown` 这类简单类型注解
  *   strip 后替换为空白、解析时按 trim 保留标识符，可安全携带（tsc strict 需要）；默认值/解构/rest 禁止。
  */
-import { buildOverview, normalizeRange, scanFolds } from "./aggregate.ts";
+import { buildFamilyTotal, buildOverview, normalizeRange, scanFolds } from "./aggregate.ts";
 import { sessionsRoot } from "./scanner.ts";
 import { FoldStore } from "./store.ts";
 
@@ -48,6 +48,18 @@ class UsageStatsService {
     const { folds, tombs } = await scanFolds(root, this.store);
     return buildOverview(folds, normalizeRange(filter), tombs);
   }
+
+  /** 全家桶聚合：`{ sessionId }`（本会话 + 按 parentId 血缘递归的全部后代，全时段全模型）。
+   *  只计不列明细：返回计数 + 总数 + 按 `provider/model` 拆行。未知/空 sessionId 返回 known:false；
+   *  子代理会话返回 isSubagent:true（调用方不渲染）；已删子会话的用量由墓碑账本保留，一并计入。 */
+  async familyTotal(filter: unknown) {
+    const id = filter && typeof filter === "object" ? String((filter as Record<string, unknown>).sessionId || "").trim() : "";
+    const root = sessionsRoot(this.config.sessionsHome);
+    if (!this.store) this.store = new FoldStore(root);
+    const { folds, tombs } = await scanFolds(root, this.store);
+    if (!id) return buildFamilyTotal(folds, "", tombs);
+    return buildFamilyTotal(folds, id, tombs);
+  }
 }
 
 /** 手写 SRC Remote 标记（形态 = typert-protocol mark() 产物：{version:1, methods:[...]}）。 */
@@ -55,7 +67,10 @@ Object.defineProperty(UsageStatsService.prototype, REMOTE_METHODS_KEY, {
   configurable: true,
   value: Object.freeze({
     version: 1,
-    methods: Object.freeze([Object.freeze({ method: "overview", invocation: Object.freeze({ kind: "direct" }) })]),
+    methods: Object.freeze([
+      Object.freeze({ method: "overview", invocation: Object.freeze({ kind: "direct" }) }),
+      Object.freeze({ method: "familyTotal", invocation: Object.freeze({ kind: "direct" }) }),
+    ]),
   }),
 });
 

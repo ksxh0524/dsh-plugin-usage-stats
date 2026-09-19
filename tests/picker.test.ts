@@ -200,12 +200,15 @@ function mountPage() {
     return stubModules[id];
   });
   let sectionComp: any = null;
+  const regs: any[] = [];
   const ctx: any = {
     effect: (fn: any) => fn(),
     slots: {
       inject: (_slot: string, factory: any) => factory(),
-      register: (_meta: any, comp: any) => {
-        sectionComp = comp;
+      // 本包注册两个槽位（settings.section + composer.dock 全家桶 pill）：设置页断言只采前者。
+      register: (meta: any, comp: any) => {
+        regs.push({ meta, comp });
+        if (meta && meta.name === "settings.section") sectionComp = comp;
       },
     },
     remote: { $mount: () => Promise.resolve() },
@@ -214,6 +217,7 @@ function mountPage() {
   exports.apply(ctx);
   assert.ok(sectionComp, "settings.section 组件未注册");
   rt.mount(sectionComp());
+  (rt as any).regs = regs;
   return rt;
 }
 
@@ -387,6 +391,31 @@ test("§4.4 常路：维度下拉走宿主 Menu（portal + role=menu/menuitem + 
   // 真定义令牌审计 + 结构门：现稿必须零违则（门在 dsh-check，规则与 STANDARDS §4.4 同源）
   assert.deepEqual(collectSectionPageStructureViolations(CLIENT), [], "STANDARDS §4.4 分区页结构门");
   assert.deepEqual(collectMotionGuardViolations(CLIENT), [], "STANDARDS §4.3 动效自护门");
+  assert.match(CLIENT, /create: function \(\)/, "网关 ≥0.1.6 硬门：strict codec 必须带 create() 工厂");
   const requires = [...CLIENT.matchAll(/require\("([^"]+)"\)/g)].map((m) => m[1]).sort();
   assert.deepEqual(requires, ["@deepseek-ai/dsh-client-ui-primitives", "react", "react-dom"], "浏览器半 require 必须全在宿主冻结模块种子表内（§4.3）");
+});
+
+test("全家桶接线：dock 注册与 settings.section 并存，inject 透传 sessionId", () => {
+  const rt = mountPage();
+  const regs = (rt as any).regs as any[];
+  const names = regs.map((r) => r.meta && r.meta.name).sort();
+  assert.deepEqual(names, ["conversation.composer.dock", "settings.section"], "两个槽位都要注册，dock 不得冲掉设置页");
+  const dock = regs.find((r) => r.meta && r.meta.name === "conversation.composer.dock");
+  assert.equal(dock.meta.id, "family-total");
+  assert.equal(dock.meta.order, 1, "宿主自带统计 order 0 之后");
+  assert.equal(typeof dock.meta.inject, "function", "dock 项必须带 inject 工厂透传 sessionId");
+  const wired = dock.meta.inject("sess-1");
+  assert.equal(wired.familySessionId, "sess-1", "字符串 sessionId 原样透传");
+  assert.equal(typeof wired.familyTotal, "function", "familyTotal 调用口随 inject 下发");
+  assert.equal(dock.meta.inject({ id: "sess-2" }).familySessionId, "sess-2", "对象形态取 .id");
+  assert.equal(dock.meta.inject(undefined).familySessionId, "", "未知形态回空串（组件不渲染）");
+});
+
+test("设置页全家开关行：role=switch + 默认开（桩无 Switch 走原生 checkbox 兜底）", () => {
+  const rt = mountPage();
+  const sw = () => collect(rt, (n) => n.props.role === "switch" && n.props["aria-label"] === "会话底部全家用量开关")[0];
+  assert.ok(sw(), "缺少全家开关（aria-label 会话底部全家用量开关）");
+  assert.equal(sw().props["aria-checked"], true, "默认开");
+  assert.ok(collect(rt, (n) => typeof n.props.className === "string" && n.props.className.indexOf("usg-optRow") >= 0).length >= 1, "开关行缺 usg-optRow 排版");
 });
