@@ -14,12 +14,12 @@ Usage-statistics plugin for the DSH Web GUI: a dedicated **Token 用量 page in 
 
 ## Contract
 
-| Item          | Rule                                                                                                                                                                                                       |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `overview`    | `{from?, to?, model?, provider?}` — dates are `YYYY-MM-DD` (local zone, inverted pairs swapped); invalid keys are dropped, never guessed                                                                   |
-| `familyTotal` | `{sessionId}` → `{known, isSubagent, sessionCount, totals, hitRate, byModel}`; unknown ids return `known: false`, subagent sessions `isSubagent: true`; counts only, no per-session breakdown              |
-| Metrics       | `inputTokens` = uncached input (`total = input + output + cacheRead + cacheWrite`); hit rate = `cacheRead / (cacheRead + uncached input)`; retry folding keeps the last sample per `(session, turn, step)` |
-| Money         | Out of product: the report is pure token statistics (the price layer was retired in v4); the footer is just a data-freshness timestamp                                                                     |
+| Item          | Rule                                                                                                                                                                                                                                                                                                                                                      |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `overview`    | `{from?, to?, model?, provider?}` — dates are `YYYY-MM-DD` (local zone, inverted pairs swapped); invalid keys are dropped, never guessed                                                                                                                                                                                                                  |
+| `familyTotal` | `{sessionId}` → `{known, isSubagent, sessionCount, totals, hitRate, byModel}`; unknown ids return `known: false`, subagent sessions `isSubagent: true`; counts only, no per-session breakdown                                                                                                                                                             |
+| Metrics       | `inputTokens` = uncached input (`total = input + output + cacheRead + cacheWrite`); hit rate = `cacheRead / (cacheRead + uncached input)`; retry folding keeps the last sample per `(session, turn, step)`; compact display (K/M/B tiers) rounds each figure independently — hover any number for the exact count (parts always sum to the total exactly) |
+| Money         | Out of product: the report is pure token statistics (the price layer was retired in v4); the footer is just a data-freshness timestamp                                                                                                                                                                                                                    |
 
 ## Config
 

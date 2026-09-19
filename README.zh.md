@@ -14,12 +14,12 @@ DSH Web GUI 的用量统计插件：**设置里的独立「Token 用量」页**�
 
 ## 契约
 
-| 条目          | 规则                                                                                                                                                                                  |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `overview`    | `{from?, to?, model?, provider?}`——日期 `YYYY-MM-DD`（本地时区，起止倒挂自动交换）；非法键直接丢弃、不做猜测                                                                          |
-| `familyTotal` | `{sessionId}` → `{known, isSubagent, sessionCount, totals, hitRate, byModel}`；未知 id 回 `known:false`，子代理会话回 `isSubagent:true`；只计数、不列逐会话明细                       |
-| 口径          | `inputTokens` = 未缓存输入（`total = input + output + cacheRead + cacheWrite`）；命中率 = `cacheRead / (cacheRead + 未缓存输入)`；重试折叠只留同一 `(session, turn, step)` 的末条样本 |
-| 费用          | 已退出产品：报表是纯 token 统计（价目层 v4 拆除）；底部只标数据截至时间                                                                                                               |
+| 条目          | 规则                                                                                                                                                                                                                                                                    |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `overview`    | `{from?, to?, model?, provider?}`——日期 `YYYY-MM-DD`（本地时区，起止倒挂自动交换）；非法键直接丢弃、不做猜测                                                                                                                                                            |
+| `familyTotal` | `{sessionId}` → `{known, isSubagent, sessionCount, totals, hitRate, byModel}`；未知 id 回 `known:false`，子代理会话回 `isSubagent:true`；只计数、不列逐会话明细                                                                                                         |
+| 口径          | `inputTokens` = 未缓存输入（`total = input + output + cacheRead + cacheWrite`）；命中率 = `cacheRead / (cacheRead + 未缓存输入)`；重试折叠只留同一 `(session, turn, step)` 的末条样本；紧凑显示（K/M/B 档）各自独立舍入——hover 任一数字看精确值（分项精确值恒等于总数） |
+| 费用          | 已退出产品：报表是纯 token 统计（价目层 v4 拆除）；底部只标数据截至时间                                                                                                                                                                                                 |
 
 ## Config
 

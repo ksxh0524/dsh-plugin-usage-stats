@@ -419,3 +419,10 @@ test("设置页合计开关行：role=switch + 默认开（桩无 Switch 走原�
   assert.equal(sw().props["aria-checked"], true, "默认开");
   assert.ok(collect(rt, (n) => typeof n.props.className === "string" && n.props.className.indexOf("usg-optRow") >= 0).length >= 1, "开关行缺 usg-optRow 排版");
 });
+
+test("精确数挂 hover：KPI 与模型行须带 fmtFull 精确 title（紧凑舍入视觉差可核）", () => {
+  assert.match(CLIENT, /kpi\("总 tokens（含缓存）", fmt\(t\.total\), .*fmtFull\(t\.total\)\)/, "总数 KPI 必须挂精确 title");
+  assert.match(CLIENT, /\{ v: fmt\(m\.input\), t: fmtFull\(m\.input\) \}/, "模型行输入格必须挂精确 title");
+  assert.match(CLIENT, /\{ v: fmt\(m\.cacheRead\), t: fmtFull\(m\.cacheRead\) \}/, "模型行缓存读格必须挂精确 title");
+  assert.match(CLIENT, /title: fmtFull\(m\.total\) \+ " tok"/, "合计面板模型行必须挂精确 title");
+});
