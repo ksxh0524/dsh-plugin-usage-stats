@@ -423,3 +423,9 @@ test("命中率与宿主同算法：整数档 + 近满保真（防退回 naive �
   assert.match(CLIENT, /function roundedHitUnits\(read, denom\)/, "命中率必须走宿主整数档算法");
   assert.match(CLIENT, /fmtHit\(t\.cacheRead, t\.input \+ t\.cacheRead \+ t\.cacheWrite\)/, "分母须含缓存写（宿主 billedInput 口径）");
 });
+
+test("合计面板定位与宿主同值：side top + gap 8 + 首帧隐藏测量", () => {
+  assert.match(CLIENT, /side: "top",\s*\n?\s*gap: 8,/, "合计面板必须朝上开（gap 8），朝下会盖住底部输入区");
+  assert.match(CLIENT, /side: props\.side \|\| "bottom"/, "Anchored 须透传 side（月历保持默认朝下）");
+  assert.match(CLIENT, /visibility: "hidden", left: 0, top: 0/, "首帧隐藏占位供测量（宿主 MEASURE_STYLE 同形，不闪错位）");
+});
