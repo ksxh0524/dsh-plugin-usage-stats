@@ -1,5 +1,10 @@
 name: CI
-# 本地钩子（husky）之外的服务端兜底：prettier 检查 + tsc --noEmit + node --test。
+# 本地钩子（husky）之外的服务端兜底：prettier 检查 + tsc --noEmit + node --test + 版本纪律门。
+# link: 另一头：devDep `dsh-check: link:../dsh-check` 指向独立私有仓 ksxh0524/dsh-check，
+# runner 上默认没有——用 DSH_CHECK_TOKEN（fine-grained PAT，只要 Contents 只读 dsh-check
+# 一个仓）整仓检出到 ./dsh-check 后再两边装依赖。配一次即可：本仓 Settings →
+# Secrets and variables → Actions → New repository secret，Name=DSH_CHECK_TOKEN，
+# Value=PAT。终局见索引仓 docs/debt.md DEBT#2（dsh-check 上 npm 后直连 registry，本段检出即删）。
 "on":
   push:
     branches: [main]
@@ -9,6 +14,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 版本纪律门要 tag + 完整历史
+      - name: 前置：DSH_CHECK_TOKEN 在位检查
+        run: |
+          if [ -z "${{ secrets.DSH_CHECK_TOKEN }}" ]; then
+            echo "缺 Secrets.DSH_CHECK_TOKEN：配法见本文件头注释（只读 dsh-check 仓的细粒度 PAT）；fork PR 无 secret 会停在这里——预期内。" >&2
+            exit 1
+          fi
+      - name: "检出 dsh-check（link: 另一头，独立私有仓整仓）"
+        uses: actions/checkout@v4
+        with:
+          repository: ksxh0524/dsh-check
+          token: ${{ secrets.DSH_CHECK_TOKEN }}
+          persist-credentials: false
+          path: dsh-check
+      - name: 装 dsh-check 自身依赖（它的 exports 直指 TS 源码，tsc 跟进需要 playwright 等类型）
+        run: pnpm install --frozen-lockfile
+        working-directory: dsh-check
       - uses: pnpm/action-setup@v4 # 版本读 package.json 的 packageManager
       - uses: actions/setup-node@v4
         with:
@@ -19,3 +42,17 @@ jobs:
       - run: pnpm typecheck
       # 真实会话集成测试在无 ~/.dsh/sessions 的 runner 上自动 skip。
       - run: pnpm test
+      - name: 版本纪律门（公开包：改了发布内容必须 bump 版本）
+        run: |
+          PKG_VER=$(node -p "require('./package.json').version")
+          LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)
+          if [ -z "$LAST_TAG" ]; then echo "尚无 v* tag，跳过"; exit 0; fi
+          if [ "v$PKG_VER" != "$LAST_TAG" ]; then echo "版本已 bump（$LAST_TAG → $PKG_VER），通过"; exit 0; fi
+          FILES=$(node -p "require('./package.json').files.join(' ')")
+          if git diff --quiet "$LAST_TAG"...HEAD -- $FILES; then
+            echo "发布内容自 $LAST_TAG 无变化，不用 bump，通过"
+          else
+            echo "自 $LAST_TAG 起发布内容有改动，但版本仍是 $PKG_VER：先 bump package.json 再推（打 tag 即发版，见 publish.yml）" >&2
+            git diff --name-only "$LAST_TAG"...HEAD -- $FILES >&2
+            exit 1
+          fi

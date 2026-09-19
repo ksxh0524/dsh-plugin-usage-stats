@@ -7,6 +7,7 @@ name: Publish
 # 之后本工作流负责所有后续 tag 的自动发布。
 # tag 即发布点——推 tag 前本地三道门（pnpm check / husky）已过，此处不复跑测试；
 # 只做发布前对账：tag 号必须等于 package.json 的 version，防错版本误发。
+# 版本号纪律由 CI 版本纪律门卡（改了发布内容不 bump 推不上 main，见 ci.yml），此处只对账。
 # workflow_dispatch 供漏触发时（如 trusted publisher 晚于 tag 配置）在默认分支上手动补发。
 "on":
   push:
