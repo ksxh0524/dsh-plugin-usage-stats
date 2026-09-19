@@ -1,8 +1,9 @@
 /** 服务入口契约测试（不起真宿主）：
- *  ① 原型 SRC 标记形态 = typert-protocol mark() 产物（version:1 + direct invocation，overview + familyTotal 双方法）；
+ *  ① 原型 SRC 标记形态 = typert-protocol mark() 产物（version:1 + direct invocation，overview + familyTotal + getConfig + setConfig）；
  *  ② applyCordis 经 ctx.reflect.provide 注册 usageStats 服务，typertRemote 绑定形态过 validateBinding；
  *  ③ overview（含 model/provider 过滤）在真实会话目录上出非零数据（增量解码 + 价目折算全链路）。
- *  ④ familyTotal 在真实会话目录上对任一已知会话出数（未知 id 回 known:false）。 */
+ *  ④ familyTotal 在真实会话目录上对任一已知会话出数（未知 id 回 known:false）。
+ *  ⑤ getConfig/setConfig 经桩 settings 面读写两开关；总开关关闭时 familyTotal 回 enabled:false。 */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -28,12 +29,12 @@ test("SRC 标记与 typertRemote 绑定形态符合 gateway 读取契约", () =>
   assert.equal(marker.value.version, 1);
   assert.deepEqual(
     marker.value.methods.map((m) => m.method),
-    ["overview", "familyTotal"],
-    "Remote 收口为 overview + familyTotal（会话视图宿主自带，不预留死接口）",
+    ["overview", "familyTotal", "getConfig", "setConfig"],
+    "Remote 收口为 overview + familyTotal + getConfig + setConfig（会话视图宿主自带，不预留死接口）",
   );
   assert.deepEqual(
     marker.value.methods.map((m) => m.invocation.kind),
-    ["direct", "direct"],
+    ["direct", "direct", "direct", "direct"],
   );
   // SRC 参数形态：复刻网关 methodParameterNames 的解析（Node type-strip 会把 `: unknown` 注解替换为等长空白，
   // 网关按「逗号切分 + trim + 纯标识符且唯一」校验；默认值/解构/rest 会被拒绝）。
@@ -51,6 +52,8 @@ test("SRC 标记与 typertRemote 绑定形态符合 gateway 读取契约", () =>
   assert.deepEqual(names, ["filter"], "wire 参数名 = 客户端 descriptor 的 name（隐式契约）");
   const familyNames = srcParamNames(proto.familyTotal);
   assert.deepEqual(familyNames, ["filter"], "familyTotal 同样是单一 filter 参数（内含 sessionId）");
+  assert.deepEqual(srcParamNames(proto.getConfig), ["_hint"], "getConfig 参数名与 descriptor wire 名一致");
+  assert.deepEqual(srcParamNames(proto.setConfig), ["patch"], "setConfig 参数名与 descriptor wire 名一致");
 });
 
 test("applyCordis：provide 注册 + 绑定可被 validateBinding 语义接受", () => {
@@ -106,4 +109,69 @@ test("真实链路：familyTotal 未知 id 回 known:false（口径不断言活�
   assert.equal(r.known, false);
   assert.equal(r.sessionCount, 0);
   assert.equal(r.byModel.length, 0);
+});
+
+/** 桩 settings 面：installSection 捕获段注册并回灌 live 源；replace 落内存文档。 */
+function stubSettings(initial = { familyEnabled: true, dockVisible: true }, writable = true) {
+  const face: any = {
+    store: { ...initial },
+    writable,
+    installed: [] as any[],
+    installSection(_owner: unknown, ns: string, _schema: unknown, entry: unknown, hooks: any) {
+      face.installed.push({ ns, entry });
+      hooks?.setSource?.(() => ({ ...face.store }));
+    },
+    async replace(ns: string, value: unknown) {
+      face.replaced = { ns, value };
+      face.store = { ...(value as any) };
+    },
+  };
+  return face;
+}
+
+function serviceWithSettings(config: any = {}, initial?: any, writable?: boolean) {
+  const face = stubSettings(initial, writable);
+  const ctx: StubCtx = {
+    reflect: { provide: () => () => {} },
+    logger: undefined,
+    inject: (_deps: unknown, cb: any) => cb({ settings: face }),
+    get: (name: string) => (name === "settings" ? face : undefined),
+  };
+  const svc = applyCordis(ctx, config);
+  return { svc, face };
+}
+
+test("installSection 注册 usage-stats 段；getConfig 回 live 配置与可写位", async () => {
+  const { svc, face } = serviceWithSettings();
+  assert.equal(face.installed.length, 1);
+  assert.equal(face.installed[0].ns, "usage-stats");
+  assert.deepEqual(face.installed[0].entry, { familyEnabled: true, dockVisible: true });
+  const r = await svc.getConfig({});
+  assert.deepEqual(r.config, { familyEnabled: true, dockVisible: true });
+  assert.equal(r.settingsSection, "usage-stats");
+  assert.equal(r.writable, true);
+});
+
+test("setConfig 落盘并回显；非法 patch 与缺席 settings 面各自抛", async () => {
+  const { svc, face } = serviceWithSettings();
+  const next = await svc.setConfig({ dockVisible: false });
+  assert.deepEqual(next, { familyEnabled: true, dockVisible: false });
+  assert.deepEqual(face.replaced, { ns: "usage-stats", value: { familyEnabled: true, dockVisible: false } });
+  // live 源热推送：后继 getConfig 即见新值，无需重启
+  assert.deepEqual((await svc.getConfig({})).config, { familyEnabled: true, dockVisible: false });
+  await assert.rejects(() => svc.setConfig({ familyEnabled: "yes" }), /配置校验失败/);
+  await assert.rejects(() => svc.setConfig(null), /配置校验失败/);
+  const bare: StubCtx = { reflect: { provide: () => () => {} }, logger: undefined, get: () => undefined };
+  const svc2 = applyCordis(bare, {});
+  await assert.rejects(() => svc2.setConfig({ dockVisible: false }), /settings 服务缺席/);
+  const ro = serviceWithSettings({}, undefined, false);
+  assert.equal((await ro.svc.getConfig({})).writable, false);
+});
+
+test("总开关关闭时 familyTotal 回 enabled:false（调用方不渲染）", async () => {
+  const { svc } = serviceWithSettings();
+  svc.source = () => ({ familyEnabled: false, dockVisible: true });
+  const r = await svc.familyTotal({ sessionId: "anything" });
+  assert.equal(r.enabled, false);
+  assert.equal(r.dockVisible, true);
 });

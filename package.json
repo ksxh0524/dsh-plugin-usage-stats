@@ -48,11 +48,11 @@
     "@commitlint/cli": "^21.0.2",
     "@commitlint/config-conventional": "^21.0.2",
     "@types/node": "^24.2.0",
+    "dsh-check": "link:../dsh-check",
     "husky": "^9.1.7",
     "lint-staged": "^15.2.10",
     "prettier": "^3.8.4",
-    "typescript": "^5.9.2",
-    "dsh-check": "link:../dsh-check"
+    "typescript": "^5.9.2"
   },
   "engines": {
     "node": ">=22.18.0"
@@ -69,5 +69,8 @@
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,json,jsonc,md,yml,yaml,html}": "prettier --write"
   },
-  "packageManager": "pnpm@11.5.3"
+  "packageManager": "pnpm@11.5.3",
+  "dependencies": {
+    "@deepseek-ai/schemastery": "3.18.2"
+  }
 }

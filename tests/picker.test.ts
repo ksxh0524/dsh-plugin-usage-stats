@@ -400,7 +400,7 @@ test("合计接线：dock 注册与 settings.section 并存，inject 透传 sess
   const rt = mountPage();
   const regs = (rt as any).regs as any[];
   const names = regs.map((r) => r.meta && r.meta.name).sort();
-  assert.deepEqual(names, ["conversation.composer.dock", "settings.section"], "两个槽位都要注册，dock 不得冲掉设置页");
+  assert.deepEqual(names, ["conversation.composer.dock", "plugins.item", "settings.section"], "三个槽位都要注册，互不得冲掉");
   const dock = regs.find((r) => r.meta && r.meta.name === "conversation.composer.dock");
   assert.equal(dock.meta.id, "family-total");
   assert.equal(dock.meta.order, 1, "宿主自带统计 order 0 之后");
@@ -410,14 +410,6 @@ test("合计接线：dock 注册与 settings.section 并存，inject 透传 sess
   assert.equal(typeof wired.familyTotal, "function", "familyTotal 调用口随 inject 下发");
   assert.equal(dock.meta.inject({ id: "sess-2" }).familySessionId, "sess-2", "对象形态取 .id");
   assert.equal(dock.meta.inject(undefined).familySessionId, "", "未知形态回空串（组件不渲染）");
-});
-
-test("设置页合计开关行：role=switch + 默认开（桩无 Switch 走原生 checkbox 兜底）", () => {
-  const rt = mountPage();
-  const sw = () => collect(rt, (n) => n.props.role === "switch" && n.props["aria-label"] === "会话底部合计用量开关")[0];
-  assert.ok(sw(), "缺少合计开关（aria-label 会话底部合计用量开关）");
-  assert.equal(sw().props["aria-checked"], true, "默认开");
-  assert.ok(collect(rt, (n) => typeof n.props.className === "string" && n.props.className.indexOf("usg-optRow") >= 0).length >= 1, "开关行缺 usg-optRow 排版");
 });
 
 test("精确数挂 hover：KPI 与模型行须带 fmtFull 精确 title（紧凑舍入视觉差可核）", () => {

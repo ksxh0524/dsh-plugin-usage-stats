@@ -2,22 +2,24 @@
 
 [中文](./README.zh.md)
 
-Usage-statistics plugin for the DSH Web GUI: a dedicated **Token 用量 page in Settings** — a global, session-independent report across all workspaces, with date-range picker, model/provider filters, a KPI grid and one per-model table. Strictly read-only, zero instrumentation. Per-session stats stay in the host chat UI; the one number the host cannot show — the session plus all descendant subagent sessions — arrives as a **combined-total pill under the composer**.
+Usage-statistics plugin for the DSH Web GUI: a dedicated **Token 用量 page in Settings** — a global, session-independent report across all workspaces, with date-range picker, model/provider filters, a KPI grid and one per-model table. The usage surface is strictly read-only with zero instrumentation (the only write point is the two combined-total switches on the plugin card). Per-session stats stay in the host chat UI; the one number the host cannot show — the session plus all descendant subagent sessions — arrives as a **combined-total pill under the composer**.
 
 ## Tools & Services
 
-| Name             | Kind    | Shape                                                                                                                             |
-| ---------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `usageStats`     | Remote  | `overview(filter)` global rollup and `familyTotal({sessionId})` combined-total rollup — both read-only (see Contract)             |
-| fold scanner     | Service | Byte-accurate zstd frame walker: only newly completed frames are decompressed; state in `<DSH_HOME>/cache/usage-stats.folds.json` |
-| tombstone ledger | Service | Deleted sessions keep their scanned facts as tombstones (live file reappearing wins; no double counting)                          |
+| Name             | Kind    | Shape                                                                                                                                                                                      |
+| ---------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `usageStats`     | Remote  | `overview(filter)` global rollup, `familyTotal({sessionId})` combined-total rollup, `getConfig`/`setConfig` combined-total switches — all read-only except the config write (see Contract) |
+| fold scanner     | Service | Byte-accurate zstd frame walker: only newly completed frames are decompressed; state in `<DSH_HOME>/cache/usage-stats.folds.json`                                                          |
+| tombstone ledger | Service | Deleted sessions keep their scanned facts as tombstones (live file reappearing wins; no double counting)                                                                                   |
 
 ## Contract
 
 | Item          | Rule                                                                                                                                                                                                                                                                                                                                                      |
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `overview`    | `{from?, to?, model?, provider?}` — dates are `YYYY-MM-DD` (local zone, inverted pairs swapped); invalid keys are dropped, never guessed                                                                                                                                                                                                                  |
-| `familyTotal` | `{sessionId}` → `{known, isSubagent, sessionCount, totals, hitRate, byModel}`; unknown ids return `known: false`, subagent sessions `isSubagent: true`; counts only, no per-session breakdown                                                                                                                                                             |
+| `familyTotal` | `{sessionId}` → `{enabled, dockVisible, known, isSubagent, sessionCount, totals, hitRate, byModel}`; unknown ids return `known: false`, subagent sessions `isSubagent: true`; counts only, no per-session breakdown                                                                                                                                       |
+| `getConfig`   | `{}` → `{config: {familyEnabled, dockVisible}, settingsSection: "usage-stats", writable}` — the two combined-total switches plus host write permission                                                                                                                                                                                                    |
+| `setConfig`   | `{familyEnabled?, dockVisible?}` → merged config (persisted to `~/.dsh/settings.yaml` with hot push; throws on invalid patch or absent settings face)                                                                                                                                                                                                     |
 | Metrics       | `inputTokens` = uncached input (`total = input + output + cacheRead + cacheWrite`); hit rate = `cacheRead / (cacheRead + uncached input)`; retry folding keeps the last sample per `(session, turn, step)`; compact display (K/M/B tiers) rounds each figure independently — hover any number for the exact count (parts always sum to the total exactly) |
 | Money         | Out of product: the report is pure token statistics (the price layer was retired in v4); the footer is just a data-freshness timestamp                                                                                                                                                                                                                    |
 
@@ -48,12 +50,12 @@ pnpm check:browser             # browser-half changes only
 
 `lib/client.js` (`./client` subpath, hand-written `__ModuleLoader__` factory, no build chain): the settings section page plus the composer pill. Host-conformant shape, not pixels (index `docs/settings-pages.md` §1, `docs/design-tokens.md` §1, `docs/runbooks/live-verify.md`).
 
-| Seat claim & yield | Status                                                                                                                                            |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claimed seats      | `settings.section` page (Token 用量, order 30) + `conversation.composer.dock` pill (id `family-total`, order 1)                                   |
-| Yield plan         | The pill renders only on main sessions with billed activity (hidden on subagent / unknown / empty sessions); the page is dedicated, no contention |
+| Seat claim & yield | Status                                                                                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claimed seats      | `settings.section` page (Token 用量, order 30) + `conversation.composer.dock` pill (id `family-total`, order 1) + `plugins.item` config card (id `usage-stats`, order 110) |
+| Yield plan         | The pill renders only on main sessions with billed activity (hidden on subagent / unknown / empty sessions); the page is dedicated, no contention                          |
 
-Pill visibility is a browser-side localStorage preference (default on), not a server config.
+The combined-total card lives on the Plugins page (next to the official cards): `familyEnabled` master switch (disables the pill and its data) and `dockVisible` (hides only the pill under the composer). Draft + save-only write point, persisted hot to settings; both default on.
 
 ## Known limits
 

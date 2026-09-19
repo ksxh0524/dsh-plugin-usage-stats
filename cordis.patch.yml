@@ -1,7 +1,10 @@
 # dsh-plugin-usage-stats layer：用量统计服务（server）+ 浏览器面板（client，dsh.client 行由同一包承载）。
 # config.sessionsHome：置空串 = 用默认（$DSH_HOME/sessions 或 ~/.dsh/sessions）；用户 profile patch 层可覆盖指向其他会话根。
+# familyEnabled/dockVisible：合计两开关的 patch 行底（缺省全开；用户在插件管理页的本插件卡里改，落 settings.yaml 热推送）。
 - insert:
     - id: usage-stats
       name: dsh-plugin-usage-stats
       config:
         sessionsHome: ""
+        familyEnabled: true
+        dockVisible: true
