@@ -1,4 +1,4 @@
-/** 全家桶聚合单测（纯 fixture，不碰真实会话目录）：
+/** 全部合计聚合单测（纯 fixture，不碰真实会话目录）：
  *  ① session 行的 parentSession 落进 meta.parentId，主会话为 null；
  *  ② buildFamilyTotal 只收父 + 递归后代（孙代在内、无关会话在外），未知 id 回 known:false；
  *  ③ 被查是子代理 → isSubagent:true；墓碑子会话计入；活文件与墓碑同 session 去重；
@@ -60,7 +60,7 @@ test("session 行 parentSession 落 meta.parentId，主会话为 null", () => {
   assert.equal(main.meta?.subagent, false);
 });
 
-test("全家桶 = 父 + 递归后代，无关与未知排除", () => {
+test("全部 = 父 + 递归后代，无关与未知排除", () => {
   const folds = [
     fold("parent", null, false, [fact("parent", "deepseek", "chat", 100, 50)]),
     fold("child-a", "parent", true, [fact("child-a", "deepseek", "chat", 200, 60)]),

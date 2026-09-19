@@ -205,7 +205,7 @@ function mountPage() {
     effect: (fn: any) => fn(),
     slots: {
       inject: (_slot: string, factory: any) => factory(),
-      // 本包注册两个槽位（settings.section + composer.dock 全家桶 pill）：设置页断言只采前者。
+      // 本包注册两个槽位（settings.section + composer.dock 全部 pill）：设置页断言只采前者。
       register: (meta: any, comp: any) => {
         regs.push({ meta, comp });
         if (meta && meta.name === "settings.section") sectionComp = comp;
@@ -396,7 +396,7 @@ test("§4.4 常路：维度下拉走宿主 Menu（portal + role=menu/menuitem + 
   assert.deepEqual(requires, ["@deepseek-ai/dsh-client-ui-primitives", "react", "react-dom"], "浏览器半 require 必须全在宿主冻结模块种子表内（§4.3）");
 });
 
-test("全家桶接线：dock 注册与 settings.section 并存，inject 透传 sessionId", () => {
+test("全部接线：dock 注册与 settings.section 并存，inject 透传 sessionId", () => {
   const rt = mountPage();
   const regs = (rt as any).regs as any[];
   const names = regs.map((r) => r.meta && r.meta.name).sort();
@@ -412,10 +412,10 @@ test("全家桶接线：dock 注册与 settings.section 并存，inject 透传 s
   assert.equal(dock.meta.inject(undefined).familySessionId, "", "未知形态回空串（组件不渲染）");
 });
 
-test("设置页全家开关行：role=switch + 默认开（桩无 Switch 走原生 checkbox 兜底）", () => {
+test("设置页全部开关行：role=switch + 默认开（桩无 Switch 走原生 checkbox 兜底）", () => {
   const rt = mountPage();
-  const sw = () => collect(rt, (n) => n.props.role === "switch" && n.props["aria-label"] === "会话底部全家用量开关")[0];
-  assert.ok(sw(), "缺少全家开关（aria-label 会话底部全家用量开关）");
+  const sw = () => collect(rt, (n) => n.props.role === "switch" && n.props["aria-label"] === "会话底部全部用量开关")[0];
+  assert.ok(sw(), "缺少全部开关（aria-label 会话底部全部用量开关）");
   assert.equal(sw().props["aria-checked"], true, "默认开");
   assert.ok(collect(rt, (n) => typeof n.props.className === "string" && n.props.className.indexOf("usg-optRow") >= 0).length >= 1, "开关行缺 usg-optRow 排版");
 });

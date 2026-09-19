@@ -171,10 +171,10 @@ uiScenarioSuite({
       },
     },
     {
-      name: "全家开关行：role=switch 可开合（dock pill 显隐偏好，默认开）",
+      name: "全部开关行：role=switch 可开合（dock pill 显隐偏好，默认开）",
       async run({ page }) {
         const { root } = await openSection(page);
-        const sw = root.getByRole("switch", { name: "会话底部全家用量开关" });
+        const sw = root.getByRole("switch", { name: "会话底部全部用量开关" });
         await sw.waitFor({ state: "visible", timeout: 25_000 });
         const before = await sw.getAttribute("aria-checked");
         await sw.click();
